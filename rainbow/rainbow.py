@@ -1,15 +1,16 @@
 #!/usr/bin/python
 import crypt
 import psycopg2
+import multiprocessing
 from string import letters,digits,printable
 from itertools import product
-from Queue import Queue
+#from Queue import Queue
 from threading import Thread
 
 salts = []
 #saltchars = 'ab'
-#saltchars = digits
-saltchars = letters + digits + './'
+saltchars = digits
+#saltchars = letters + digits + './'
 for salt in product(saltchars, repeat=2):
     salts.append( ''.join(salt) )
 
@@ -66,26 +67,30 @@ def record_data(q):
         db.commit()
         q.task_done()
 
-passwords = Queue(maxsize=0)
-hashes    = Queue(maxsize=0)
+passwords = multiprocessing.JoinableQueue(maxsize=0)
+hashes    = multiprocessing.JoinableQueue(maxsize=0)
 
 # only one generator
 for i in range(1):
-    t = Thread( target=generate_data, args=(passwords, 2, 1))
-    t.daemon = True
+    t = multiprocessing.Process( target=generate_data, args=(passwords, 2, 1))
     t.start()
 
 # however many consumers
 for i in range(3):
-    t = Thread( target=consume_data, args=(passwords, hashes))
-    t.daemon = True
+    t = multiprocessing.Process( target=consume_data, args=(passwords, hashes))
     t.start()
 
 # only one data recorder?
 for i in range(2):
-    t = Thread( target=record_data, args=(hashes,))
-    t.daemon = True
+    t = multiprocessing.Process( target=record_data, args=(hashes,))
     t.start()
 
 passwords.join()
+print "all passwords consumed"
 hashes.join()
+print "all hashes done"
+for p in multiprocessing.active_children():
+    print "joining process " , p.pid
+    if not p.join(2):
+        print "terminating process " , p.pid
+        p.terminate()
