@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import fileinput
+
 class dub_link_list_elem:
     def __init__(self, val=None, next_node=None, prev_node=None):
         self.val = val
@@ -97,14 +99,14 @@ class dub_link_list:
             yield cur.get_val()
             cur = cur.get_next()
 
-numlist = dub_link_list(max_len=3)
+# I want to read one line from fileinput, but I don't want to use the
+#  "isFirstLine" check on every single line in the loop
+lines= iter(fileinput.input())
+line = next(lines)
+numlist = dub_link_list(max_len=int(line.strip()))
 
-numlist.check_bigger(3)
-numlist.check_bigger(5)
-numlist.check_bigger(2)
-numlist.check_bigger(7)
-numlist.check_bigger(1)
-numlist.check_bigger(9)
+for line in lines:
+    numlist.check_bigger(int(line.strip()))
 
 for v in numlist.vals():
     print v
