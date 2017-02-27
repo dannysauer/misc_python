@@ -34,8 +34,6 @@ class dub_link_list:
     def check_bigger(self, val):
         if val > self.min or self.len < self.max_len:
             self.insert(val)
-        #else:
-        #    print 'not inserting {}; not big enough'.format(val)
 
     def insert(self, val):
         new_node = dub_link_list_elem(val)
@@ -48,9 +46,6 @@ class dub_link_list:
 
         prev = None
         for node in self.nodes():
-            #print 'Comparing {} against {}'.format(
-            #        val,
-            #        node.get_val() if node else 'none')
             if node == None:
                 # we are the new tail
                 prev.set_next(new_node)
@@ -62,7 +57,6 @@ class dub_link_list:
                 # already in the list; skip
                 return
             if val > node.get_val():
-                #print "inserting node {} before {}".format(val, node.get_val())
                 # add node
                 new_node.set_next(node)
                 new_node.set_prev(prev)
@@ -78,7 +72,7 @@ class dub_link_list:
             prev = node
 
         # the whole reason for double-link is to ease insertion while
-        #  keeping the list size constant
+        #  keeping the list size constant (or at least <= max_len)
         while self.len > self.max_len:
             self.tail = self.tail.get_prev()
             self.tail.set_next(None)
