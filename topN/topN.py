@@ -48,22 +48,22 @@ class dub_link_list:
         for node in self.nodes():
             if node == None:
                 # we are the new tail
-                prev.set_next(new_node)
-                new_node.set_prev(prev)
+                prev.next_node = new_node
+                new_node.prev_node = prev
                 self.tail = new_node
                 self.len += 1
                 break # somewhat duplicated
-            if val == node.get_val():
+            if val == node.val:
                 # already in the list; skip
                 return
-            if val > node.get_val():
+            if val > node.val:
                 # add node
-                new_node.set_next(node)
-                new_node.set_prev(prev)
-                node.set_prev(new_node)
+                new_node.next_node = node
+                new_node.prev_node = prev
+                node.prev_node = new_node
                 # deal with previous node
                 if prev != None:
-                    prev.set_next(new_node)
+                    prev.next_node = new_node
                 else:
                     # updated the head
                     self.head = new_node
@@ -74,17 +74,18 @@ class dub_link_list:
         # the whole reason for double-link is to ease insertion while
         #  keeping the list size constant (or at least <= max_len)
         while self.len > self.max_len:
-            self.tail = self.tail.get_prev()
-            self.tail.set_next(None)
+            self.tail = self.tail.prev_node
+            self.tail.next_node = None
             self.len -= 1
 
-        self.min = self.tail.get_val()
+        self.min = self.tail.val
 
     def nodes(self):
         cur = self.head
         while cur != None:
             yield cur
-            cur = cur.get_next()
+            #cur = cur.get_next()
+            cur = cur.next_node
         yield None
 
     def vals(self):
