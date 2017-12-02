@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
 import sys
-from datetime import datetime
 from elasticsearch import Elasticsearch,TransportError,ConnectionError
-from string import ascii_lowercase
-from random import randint
+from datetime  import datetime
+from string    import ascii_lowercase
+from random    import randint
+from threading import Thread
+from Queue     import Queue
 
 es = Elasticsearch(
 #  ['host1', 'host2'],
@@ -13,6 +15,7 @@ es = Elasticsearch(
   # really expensive CNAME.  But this is a test. :)
   'http://humpy:8086/elastic',
   # comment out the sniff options to just use the balancer directly
+  # note that this uses a persistent connection, so it won't work well :)
   sniff_on_start=True,
   sniff_on_connection_fail=True
   )
@@ -59,8 +62,8 @@ except TransportError:
     # catch something other than TransportError to see ElasticSearch errors
     print 'meh'
 
-def gen_host(i):
-    hostname = 'host{}'.format(i)
+def gen_host(suffix):
+    hostname = 'host{}'.format(suffix)
     doc = {
         'host': hostname,
         'timestamp': datetime.now(),
@@ -70,19 +73,36 @@ def gen_host(i):
     for p in ascii_lowercase[:randint(5,20)]:
         doc['packages'].append({
             'name': 'pkg_{}'.format(p),
-            'version': '{}.{}.{}'.format(
+            'version': '{}.{}'.format(
+            #'version': '{}.{}.{}'.format(
                 randint(1,3),
                 randint(0,15),
-                randint(0,10),
+                #randint(0,10),
                 )
             })
     res = es.index(index=index_name, doc_type=document_type, id=hostname, body=doc)
-    #print res
-    #sys.exit()
-    print( res['result'], i )
+    print( res['result'], suffix )
 
-for i in range(1,5000):
-    gen_host(i)
+def worker():
+    while True:
+        i = q.get()
+        gen_host(i)
+        q.task_done()
+
+# create a queue for the threads
+q = Queue()
+
+# kick off N threads
+for i in range(10):
+    t = Thread(target=worker)
+    t.daemon = True
+    t.start()
+
+# generate N hosts
+for i in range(1,50000):
+    q.put(i)
+
+q.join()
 
 ## sample fetch and search from the docs
 #res = es.get(index="test-index", doc_type='tweet', id=1)
