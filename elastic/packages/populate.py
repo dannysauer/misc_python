@@ -102,6 +102,7 @@ for i in range(10):
 for i in range(1,50000):
     q.put(i)
 
+# wait for queue to empty
 q.join()
 
 ## sample fetch and search from the docs
