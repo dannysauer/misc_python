@@ -50,13 +50,13 @@ def recurse(url):
     recurse(link)
 
 if __name__ == '__main__':
-  url = 'http://www.google.com/'
-  url = 'http://www.suse.com/'
+  #url = 'http://www.google.com/'
+  #url = 'http://www.suse.com/'
   url = 'http://www.redhat.com/'
   site = urlparse(url).netloc
-  #http = httplib2.Http()
-  proxy = httplib2.proxy_info_from_url('http://squid:3128')
-  http = httplib2.Http(proxy_info=proxy)
+  http = httplib2.Http()
+  #proxy = httplib2.proxy_info_from_url('http://squid:3128')
+  #http = httplib2.Http(proxy_info=proxy)
   browser = webbrowser.get();
   robots = robotparser.RobotFileParser(urljoin(url, '/robots.txt'))
   robots.read()
