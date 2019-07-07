@@ -4,11 +4,13 @@ import webbrowser
 import httplib2
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup, SoupStrainer
+from urllib import robotparser
 
 site = None
 browser = None
 http = None
 known_links = set()
+robots = None
 
 def local_link(tag):
   global site
@@ -18,7 +20,6 @@ def local_link(tag):
 def get_links(url):
   global known_links
   global http
-  known_links.add(url)
   try:
     response, content = http.request(url)
   except httplib2.HttpLib2Error:
@@ -35,10 +36,15 @@ def get_links(url):
 def recurse(url):
   global browser
   global known_links
+  global robots
+  if not robots.can_fetch('*', url):
+    print( f"skipping forbidden URL '{url}'" )
+    return False
   browser.open_new_tab(url)
   print(f"recursing over {url}")
   new_links = get_links(url)
   print( "Found {} new links on {}".format(len(new_links), url) )
+  # add new links to known links *before* loading the next page
   known_links.update(new_links)
   for link in new_links:
     recurse(link)
@@ -46,9 +52,14 @@ def recurse(url):
 if __name__ == '__main__':
   url = 'http://www.google.com/'
   url = 'http://www.suse.com/'
+  url = 'http://www.redhat.com/'
   site = urlparse(url).netloc
-  http = httplib2.Http()
-  #proxy = httplib2.proxy_info_from_url('http://squid:3128')
-  #http = httplib2.Http(proxy_info=proxy)
+  #http = httplib2.Http()
+  proxy = httplib2.proxy_info_from_url('http://squid:3128')
+  http = httplib2.Http(proxy_info=proxy)
   browser = webbrowser.get();
+  robots = robotparser.RobotFileParser(urljoin(url, '/robots.txt'))
+  robots.read()
+
+  known_links.add(url)
   recurse(url)
