@@ -19,7 +19,13 @@ def get_links(url):
   global known_links
   global http
   known_links.add(url)
-  status, response = http.request(url)
+  try:
+    status, response = http.request(url)
+  except httplib2.HttpLib2Error:
+    return set()
+  # no sense parsing if not an OK response with html content
+  if response.status != 200 or response['content-type'] != 'text/html':
+    return set()
   soup = BeautifulSoup(response, 'html.parser')
   links = set( urljoin( url, x['href'] ) for x in soup.find_all(local_link))
   print("found {} dup links".format( len(links.intersection(known_links)) ))
@@ -38,6 +44,7 @@ def recurse(url):
 
 if __name__ == '__main__':
   url = 'http://www.google.com/'
+  url = 'http://www.suse.com/'
   site = urlparse(url).netloc
   http = httplib2.Http()
   #proxy = httplib2.proxy_info_from_url('http://squid:3128')
