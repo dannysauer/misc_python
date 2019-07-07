@@ -20,13 +20,14 @@ def get_links(url):
   global http
   known_links.add(url)
   try:
-    status, response = http.request(url)
+    response, content = http.request(url)
   except httplib2.HttpLib2Error:
     return set()
   # no sense parsing if not an OK response with html content
-  if response.status != 200 or response['content-type'] != 'text/html':
+  if response.status != 200 or response['content-type'].split(';')[0] != 'text/html':
+    print( response['content-type'] )
     return set()
-  soup = BeautifulSoup(response, 'html.parser')
+  soup = BeautifulSoup(content, 'html.parser')
   links = set( urljoin( url, x['href'] ) for x in soup.find_all(local_link))
   print("found {} dup links".format( len(links.intersection(known_links)) ))
   return( links.difference( known_links ) )
