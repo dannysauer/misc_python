@@ -9,8 +9,8 @@ from sys import exit
 cap = cv2.VideoCapture('/dev/video0', cv2.CAP_V4L2)
 
 #height, width = 720, 1280  # 720p
-#height, width = 480, 858   # 480p
-height, width = 480, 640    # vga
+height, width = 480, 858   # 480p
+#height, width = 480, 640    # vga
 cap.set(cv2.CAP_PROP_FRAME_WIDTH,  width)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 cap.set(cv2.CAP_PROP_FPS, 60)
