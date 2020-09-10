@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import docker
+import requests
 from time import sleep
 
 target_instances = 5
@@ -33,6 +34,9 @@ for cont in containers:
     #pp.pprint(cont.attrs)
     populated_cont = client.containers.get(cont.name)
     eport = cont.attrs['NetworkSettings']['Ports']['80/tcp'][0]['HostPort']
-    print(f"Container {cont.name} exposes port {eport}")
+    #print(f"Container {cont.name} exposes port {eport}")
+    url=f"http://localhost:{eport}/hostname"
+    r = requests.get(url)
+    print(f"{url} -> '{r.text.rstrip()}'")
     cont.kill()
     #cont.remove()
