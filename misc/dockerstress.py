@@ -1,10 +1,26 @@
 #!/usr/bin/env python3
 
+import argparse
 import docker
 import requests
 from time import sleep
 
-target_instances = 5
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "number",
+    help="number of instances (defaults to 1)",
+    type=int,
+    default=1,
+    nargs='?', # make this optional
+    )
+parser.add_argument(
+    "-v", "--verbose",
+    help="Print more debug output",
+    action="count",
+    default="0",
+    )
+args = parser.parse_args()
+target_instances = args.number
 
 client = docker.from_env()
 containers = []
@@ -28,11 +44,12 @@ for i in range(1, target_instances + 1):
     containers.append(populated_cont)
 
 for cont in containers:
-    populated_cont = client.containers.get(cont.name)
+    print(f"Verifying {cont.name}")
     eport = cont.attrs['NetworkSettings']['Ports']['80/tcp'][0]['HostPort']
     #print(f"Container {cont.name} exposes port {eport}")
     url=f"http://localhost:{eport}/hostname"
     r = requests.get(url)
     print(f"{url} -> '{r.text.rstrip()}'")
+    print(f"Cleaning up {cont.name}")
     cont.kill()
     #cont.remove()
