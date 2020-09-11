@@ -6,6 +6,7 @@ import requests
 import threading
 from time import monotonic_ns
 
+
 # seems like this is something that should be built-in :/
 class Atomic_counter:
     def __init__(self, value=0):
@@ -16,13 +17,15 @@ class Atomic_counter:
         with self._lock:
             self._val += 1
             return self._val
+
     def inc(self):
         return self.increment()
-    
+
     # instance is the instance of this class, owner is the parent class
     def __get__(self, instance, owner):
         with self._lock:
             return self._val
+
     def __set__(self, instance, value):
         with self._lock:
             self._val = value
@@ -36,6 +39,7 @@ class Atomic_counter:
     def __str__(self):
         return self._val.__str__()
 
+
 class TimerNS:
     """ Creates an object which tracks nanoseconds since creation
     """
@@ -47,7 +51,7 @@ class TimerNS:
         self.last_time = monotonic_ns()
         return self.last_time - self.initial_time
 
-    def __truediv__(self, other):  return self.__get__() / other
+    def __truediv__(self, other): return self.__get__() / other
     def __floordiv__(self, other): return self.__get__() // other
     def __str__(self): return self.__get__().__str__()
 
@@ -68,6 +72,7 @@ class TimerNS:
         self.initial_time = monotonic_ns()
         return 0
 
+
 class Dockerstress:
     def __init__(self, target_instances=1, threads=1):
         self.target_instances = target_instances
@@ -87,7 +92,7 @@ class Dockerstress:
         print(f"[{self.timer}]\tBegin cleanup")
         self.cleanup()
         endtimes = self.timer.since_begin()
-        print(f"[{endtimes}]\tEnd (took {endtimes//1000} seconds total)")
+        print(f"[{endtimes}]\tEnd (took {endtimes//1000000000} seconds total)")
 
     def create_containers(self):
         for i in range(1, self.target_instances + 1):
@@ -104,12 +109,12 @@ class Dockerstress:
             name=host,
             remove=True,
             detach=True,
-            ports={"80/tcp": None}, # picks a random port
+            ports={"80/tcp": None},  # picks a random port
             publish_all_ports=True,
             )
         # have to get the container after it's started so things like
         # "assigned ports" are fully populated.  Otherwise we just get
-        # the configuration value, which is None :/ 
+        # the configuration value, which is None :/
         self.containers.append(
             self.client.containers.get(cont.name)
             )
@@ -121,8 +126,8 @@ class Dockerstress:
     def _verify_container(self, cont):
         print(f"[{self.timer}]\tVerifying {cont.name}")
         eport = cont.attrs['NetworkSettings']['Ports']['80/tcp'][0]['HostPort']
-        #print(f"Container {cont.name} exposes port {eport}")
-        url=f"http://localhost:{eport}/hostname"
+        # print(f"Container {cont.name} exposes port {eport}")
+        url = f"http://localhost:{eport}/hostname"
         r = requests.get(url)
         print(f"{url} -> '{r.text.rstrip()}'")
 
@@ -130,12 +135,8 @@ class Dockerstress:
         for cont in self.containers:
             print(f"[{self.timer}]\tCleaning up {cont.name}")
             cont.kill()
-            #cont.remove()
+            # cont.remove()
 
-
-def main(args):
-    d = Dockerstress(target_instances=args.number, threads=args.threads)
-    d.runall()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -144,7 +145,7 @@ if __name__ == '__main__':
         help="number of instances (defaults to 1)",
         type=int,
         default=1,
-        nargs='?', # make this optional
+        nargs='?',  # make this optional
         )
     parser.add_argument(
         "-t", "--threads",
@@ -159,4 +160,6 @@ if __name__ == '__main__':
         default="0",
         )
     args = parser.parse_args()
-    main(args)
+
+    d = Dockerstress(target_instances=args.number, threads=args.threads)
+    d.runall()
