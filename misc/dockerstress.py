@@ -4,7 +4,7 @@ import argparse
 import docker
 import requests
 import threading
-from time import sleep
+from time import monotonic_ns
 
 # seems like this is something that should be built-in :/
 class Atomic_counter:
@@ -36,6 +36,37 @@ class Atomic_counter:
     def __str__(self):
         return self._val.__str__()
 
+class TimerNS:
+    """ Creates an object which tracks nanoseconds since creation
+    """
+    def __init__(self):
+        self.initial_time = monotonic_ns()
+        self.last_time = self.initial_time
+
+    def __get__(self):
+        self.last_time = monotonic_ns()
+        return self.last_time - self.initial_time
+
+    def __truediv__(self, other):  return self.__get__() / other
+    def __floordiv__(self, other): return self.__get__() // other
+    def __str__(self): return self.__get__().__str__()
+
+    def since_begin(self):
+        """ Return nanoseconds since the object was created
+        """
+        return self.__get__()
+
+    def since_last(self):
+        """ Return nanoseconds since most recent get/reset/last
+        """
+        now = monotonic_ns()
+        last = self.last_time
+        self.last_time = now
+        return now - last
+
+    def reset(self):
+        self.initial_time = monotonic_ns()
+        return 0
 
 class Dockerstress:
     def __init__(self, target_instances=1, threads=1):
@@ -45,11 +76,18 @@ class Dockerstress:
         self.client = docker.from_env()
         self.containers = []
         self.index = Atomic_counter()
+        self.timer = TimerNS()
 
     def runall(self):
+        self.timer.reset()
+        print(f"[{self.timer.reset()}]\tBegin create")
         self.create_containers()
+        print(f"[{self.timer}]\tBegin verify")
         self.verify_containers()
+        print(f"[{self.timer}]\tBegin cleanup")
         self.cleanup()
+        endtimes = self.timer.since_begin()
+        print(f"[{endtimes}]\tEnd (took {endtimes//1000} seconds total)")
 
     def create_containers(self):
         for i in range(1, self.target_instances + 1):
@@ -58,7 +96,7 @@ class Dockerstress:
     def _create_container(self):
         i = self.index.increment()
         host = f"stresshost_{i}"
-        print(f"creating {host}")
+        print(f"[{self.timer}]\tcreating {host}")
         cont = self.client.containers.run(
             "busybox",
             ["/bin/httpd", "-fh", "/etc"],
@@ -81,7 +119,7 @@ class Dockerstress:
             self._verify_container(cont)
 
     def _verify_container(self, cont):
-        print(f"Verifying {cont.name}")
+        print(f"[{self.timer}]\tVerifying {cont.name}")
         eport = cont.attrs['NetworkSettings']['Ports']['80/tcp'][0]['HostPort']
         #print(f"Container {cont.name} exposes port {eport}")
         url=f"http://localhost:{eport}/hostname"
@@ -90,7 +128,7 @@ class Dockerstress:
 
     def cleanup(self):
         for cont in self.containers:
-            print(f"Cleaning up {cont.name}")
+            print(f"[{self.timer}]\tCleaning up {cont.name}")
             cont.kill()
             #cont.remove()
 
