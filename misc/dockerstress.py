@@ -6,6 +6,7 @@ import requests
 import threading
 from time import monotonic_ns
 
+amillion = 1000000000
 
 # seems like this is something that should be built-in :/
 class Atomic_counter:
@@ -53,6 +54,8 @@ class TimerNS:
 
     def __truediv__(self, other): return self.__get__() / other
     def __floordiv__(self, other): return self.__get__() // other
+    def __sub__(self, other): return self.__get__() - other
+    def __rsub__(self, other): return other - self.__get__()
     def __str__(self): return self.__get__().__str__()
 
     def since_begin(self):
@@ -85,23 +88,22 @@ class Dockerstress:
 
     def runall(self):
         self.timer.reset()
-        print(f"[{self.timer.reset()}]\tBegin create")
         self.create_containers()
-        print(f"[{self.timer}]\tBegin verify")
         self.verify_containers()
-        print(f"[{self.timer}]\tBegin cleanup")
         self.cleanup()
         endtimes = self.timer.since_begin()
-        print(f"[{endtimes}]\tEnd (took {endtimes//1000000000} seconds total)")
+        print(f"[{endtimes}]\tEnd (took {endtimes//amillion} seconds total)")
 
     def create_containers(self):
+        print(f"[{self.timer.reset()}]\tBegin create")
         for i in range(1, self.target_instances + 1):
             self._create_container()
+        print(f"[{self.timer}]\tCreate took {self.timer//amillion} seconds")
 
     def _create_container(self):
         i = self.index.increment()
         host = f"stresshost_{i}"
-        print(f"[{self.timer}]\tcreating {host}")
+        print(f"[+{self.timer.since_last()}]\tcreating {host}")
         cont = self.client.containers.run(
             "busybox",
             ["/bin/httpd", "-fh", "/etc"],
@@ -120,11 +122,14 @@ class Dockerstress:
             )
 
     def verify_containers(self):
+        stime = self.timer.since_begin()
+        print(f"[{stime}]\tBegin verify")
         for cont in self.containers:
             self._verify_container(cont)
+        print(f"[{self.timer}]\tVerify took {(self.timer-stime)//amillion} seconds")
 
     def _verify_container(self, cont):
-        print(f"[{self.timer}]\tVerifying {cont.name}")
+        print(f"[+{self.timer.since_last()}]\tVerifying {cont.name}")
         eport = cont.attrs['NetworkSettings']['Ports']['80/tcp'][0]['HostPort']
         # print(f"Container {cont.name} exposes port {eport}")
         url = f"http://localhost:{eport}/hostname"
@@ -132,10 +137,13 @@ class Dockerstress:
         print(f"{url} -> '{r.text.rstrip()}'")
 
     def cleanup(self):
+        stime = self.timer.since_begin()
+        print(f"[{stime}]\tBegin cleanup")
         for cont in self.containers:
-            print(f"[{self.timer}]\tCleaning up {cont.name}")
+            print(f"[+{self.timer.since_last()}]\tCleaning up {cont.name}")
             cont.kill()
             # cont.remove()
+        print(f"[{self.timer}]\tCleanup took {(self.timer-stime)//amillion} seconds")
 
 
 if __name__ == '__main__':
