@@ -44,7 +44,7 @@ class receipts:
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     cred_file, self.SCOPES
-                )
+                    )
                 creds = flow.run_local_server(port=0)
             # Save the credentials for the next run
             with open(cache_file, 'wb') as token:
@@ -60,7 +60,7 @@ class receipts:
             q=(f"mimeType     = '{mime_type}' "
                f"and name     = '{name}' "
                f"and trashed != true "
-            ),
+               ),
             spaces='drive',
             fields='files(id, name)',
         ).execute().get('files', [])
