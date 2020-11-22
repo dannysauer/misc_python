@@ -17,15 +17,15 @@ class receipts:
             # 'https://www.googleapis.com/auth/spreadsheets',
         ]
         self.folder_id = None
-        self.folder_name = 'Receipts'
+        self.folder_name = 'Receipt images'
         self.folder_type = 'application/vnd.google-apps.folder'
         self.sheet_id = None
-        self.sheet_name = 'Receipts_sheet'
+        self.sheet_name = 'Receipts sheet'
         self.sheet_type = 'application/vnd.google-apps.spreadsheet'
         self.service = None
         self._auth('/home/sauer/google_receipt-upload.json')
         self._init_folder()
-        # self._init_sheet()
+        self._init_sheet()
 
     def _auth(self, cred_file):
         cache_file = 'token.pickle'
@@ -57,14 +57,13 @@ class receipts:
         """
         file = None
         result = self.service.files().list(
-            q=f""""
-                mimeType     = '{mime_type}'
-                and name     = '{name}'
-                and trashed != true
-            """,
+            q=(f"mimeType     = '{mime_type}' "
+               f"and name     = '{name}' "
+               f"and trashed != true "
+            ),
             spaces='drive',
             fields='files(id, name)',
-        ).get('files', [])
+        ).execute().get('files', [])
         if result:
             print("Found target")
             if len(result) > 1:
@@ -72,7 +71,7 @@ class receipts:
                 # and then look in to adding metadata which distinguishes ours
             file = result[0]
         else:
-            print(f"Creating new directory {name}\n")
+            print(f"Creating new object {name}\n")
             file_metadata = {
                 'name': name,
                 'mimeType': mime_type
