@@ -2,6 +2,7 @@
 import pickle
 import os.path
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
@@ -94,10 +95,30 @@ class receipts:
             )
         print(f"Sheet (name: {self.sheet_name}) ID: {self.sheet_id}")
 
+    def process_image(self, img_path):
+        if not os.path.exists(img_path):
+            return False
+        id = self.upload_image(img_path)
+        return(id)
+
+    def upload_image(self, img_path):
+        metadata = {
+            'name': os.path.basename(img_path).lower(),
+            'parents': [self.folder_id]
+            }
+        media = MediaFileUpload(img_path, mimetype='image/jpeg')
+        file = self.service.files().create(
+            body=metadata,
+            media_body=media,
+            fields='id',
+            ).execute()
+        return file
+
 
 def main():
     r = receipts()
-    print(r)
+    #print(r)
+    r.process_image('/home/sauer/dev/github/receipt-parser/data/img/IMG_0349.jpeg')
 
 
 if __name__ == '__main__':
