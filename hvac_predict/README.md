@@ -285,6 +285,8 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
+On a pull request, pre-commit.ci runs the two `ruff` commands from the repository's [`.pre-commit-config.yaml`](../.pre-commit-config.yaml). Nothing runs `pytest` or `mypy` for you. That file pins `ruff` too. To change the version, change `ruff==` there and in `pyproject.toml`, then run `uv lock`.
+
 The tests fit the model to simulated houses whose physics are known, and run both commands against stand-ins for VictoriaMetrics and Home Assistant. To watch the tool steer a simulated house and thermostat for ten days, against the same thermostat left on one fixed pair:
 
 ```sh

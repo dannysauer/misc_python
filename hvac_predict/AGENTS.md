@@ -1,6 +1,6 @@
 # hvac-predict: notes for agents
 
-`hvac-predict` is a command line tool that chooses the heating and cooling setpoints of a Home Assistant thermostat from a weather forecast and a thermal model of the house. It lives in one directory of a repository of otherwise unrelated scripts. Treat this directory as the project root: nothing outside it belongs to the project, and every path here is relative to it.
+`hvac-predict` is a command line tool that chooses the heating and cooling setpoints of a Home Assistant thermostat from a weather forecast and a thermal model of the house. It lives in one directory of a repository of otherwise unrelated scripts. Treat this directory as the project root: every path here is relative to it. One file outside it belongs to the project, [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) at the root of the repository, which holds the checks a pull request runs.
 
 Read [`README.md`](README.md) first for what the tool does and how an operator uses it.
 
@@ -53,7 +53,7 @@ uv run ruff check . && uv run ruff format --check .
 uv run python tests/closed_loop.py 10   # the tool steering a simulated house for ten days
 ```
 
-`pytest`, `mypy`, `ruff check` and `ruff format --check` pass on every commit. Run them before you hand work back.
+`pytest`, `mypy`, `ruff check` and `ruff format --check` pass on every commit. Run them before you hand work back. On a pull request, pre-commit.ci runs only the two `ruff` commands, from [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) at the root of the repository. That file pins `ruff` too. To change the version, change `ruff==` there and in `pyproject.toml`, then run `uv lock`.
 
 Conventions the code keeps:
 

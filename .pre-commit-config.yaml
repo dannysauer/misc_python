@@ -1,0 +1,33 @@
+# Checks that pre-commit.ci runs on every pull request, and that
+# `pre-commit run --all-files` runs locally. Both hooks only report; neither
+# rewrites a file.
+#
+# Only hvac_predict/ is checked. The older scripts in this repository were
+# never linted, and fail both hooks.
+#
+# The hooks are local so that ruff's version is written here. pre-commit.ci
+# updates the version of a hook taken from astral-sh/ruff-pre-commit on its
+# own schedule, which would move it away from the version hvac_predict pins,
+# and two versions of ruff can disagree about formatting. To change the
+# version, change `ruff==` on both lines here and in
+# hvac_predict/pyproject.toml, then run `uv lock` in hvac_predict/.
+files: ^hvac_predict/
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --force-exclude
+        language: python
+        additional_dependencies: ["ruff==0.17.5"]
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format --check
+        entry: ruff format --check --force-exclude
+        language: python
+        additional_dependencies: ["ruff==0.17.5"]
+        # ruff also formats the Python in a Markdown file's code blocks.
+        types_or: [python, pyi, markdown]
+        require_serial: true
