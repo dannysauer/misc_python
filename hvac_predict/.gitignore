@@ -1,0 +1,13 @@
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Your own configuration and the model trained from your house.
+hvac-predict.toml
+model.json
+model.json.*
+state.json
+state.json.*
+decisions.jsonl
+errors.log

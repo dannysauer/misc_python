@@ -1,0 +1,42 @@
+[project]
+name = "hvac-predict"
+version = "0.1.0"
+description = "Choose a Home Assistant thermostat's heating and cooling setpoints ahead of the weather"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx==0.28.1",
+    "numpy==2.5.4",
+    "scipy==1.18.1",
+]
+
+[project.scripts]
+hvac-predict = "hvac_predict.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy==2.4.1",
+    "pytest==9.2.0",
+    "ruff==0.17.5",
+]
+
+[build-system]
+requires = ["hatchling==1.33.0"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+
+[tool.mypy]
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = "scipy.*"
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["B", "C4", "E", "F", "I", "N", "PT", "RET", "RUF", "SIM", "UP", "W"]

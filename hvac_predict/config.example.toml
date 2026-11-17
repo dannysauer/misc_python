@@ -1,0 +1,116 @@
+# Configuration for hvac-predict. Copy this file to hvac-predict.toml and edit it.
+#
+# Every temperature here, and every temperature the tool prints, is in
+# units.temperature. That has to be the unit the history queries return. Home
+# Assistant's Prometheus integration exports every temperature in Celsius, so
+# the queries below convert to Fahrenheit to match the targets.
+
+# Files the tool keeps, relative to this file. `train` writes the model.
+# `decide` reads it, and keeps a note of what it last saw in the state file.
+# Keep them, and this file, in a directory only you can write to.
+model_path = "model.json"
+state_path = "state.json"
+
+[victoriametrics]
+# The address of VictoriaMetrics' Prometheus querying API.
+url = "http://victoriametrics.home.arpa:8428"
+
+[homeassistant]
+# Use https:// if you can: the access token travels with every request.
+url = "http://homeassistant.home.arpa:8123"
+# The thermostat to steer. It has to be in heat_cool (auto) mode.
+climate_entity = "climate.thermostat"
+# The weather entity has to offer an hourly forecast.
+weather_entity = "weather.home"
+# Optional. With this set, the thermostat is only touched while the entity is on.
+# enable_entity = "input_boolean.hvac_predict"
+# Optional. The attribute of climate_entity that names the comfort setting its
+# schedule has reached. This default is what the ecobee integration provides.
+# comfort_attribute = "climate_mode"
+
+[location]
+# Where the house is, to work out where the sun is. Two decimal places are
+# plenty. These are placeholders.
+latitude = 41.88
+longitude = -87.63
+
+[units]
+temperature = "°F"      # "°C" or "°F"
+# The next two are optional, shown with their defaults.
+wind_speed = "km/h"     # "m/s", "km/h", "mph", "kn" or "ft/s"
+precipitation = "mm"    # "mm" or "in"; history.rain is this much per hour
+
+[history]
+# MetricsQL expressions. Each has to return exactly one series. A series is
+# identified by all of its labels, friendly_name included, so giving an entity a
+# new name starts a second series; wrapping the selector in max(...) merges
+# them.
+#
+# The names below follow the source of Home Assistant's Prometheus integration
+# and have not been checked against a live export, so try each query first.
+# The entity IDs are placeholders. "homeassistant_" is the integration's default
+# namespace; yours differs if you set `namespace`. A sensor's metric is named
+# sensor_<device class>_<unit>, so a wind sensor that reports mph is
+# homeassistant_sensor_wind_speed_mph. Set [units] to match what you query.
+
+# The temperature the thermostat acts on. If it strays more than 5.4 °F (3 °C)
+# from what the thermostat itself reports, or the thermostat reports nothing,
+# the tool refuses to act.
+indoor_temp = 'max(homeassistant_climate_current_temperature_celsius{entity="climate.thermostat"}) * 1.8 + 32'
+outdoor_temp = 'max(homeassistant_sensor_temperature_celsius{entity="sensor.outdoor_temperature"}) * 1.8 + 32'
+
+# solar, wind and rain are optional. Leave one out and the model does without
+# that driver. solar takes a light or irradiance sensor, in any unit.
+solar = 'max(homeassistant_sensor_illuminance_lx{entity="sensor.outdoor_illuminance"})'
+wind = 'max(homeassistant_sensor_wind_speed_km_per_h{entity="sensor.wind_speed"})'
+rain = 'max(homeassistant_sensor_precipitation_intensity_mm_per_h{entity="sensor.rain_rate"})'
+# 1 while the equipment runs and 0 while it does not. Give both unless the
+# house lacks one: a model trained without them passes its check but cannot
+# predict the house with the equipment off.
+heating = 'max(homeassistant_climate_action{entity="climate.thermostat", action="heating"})'
+cooling = 'max(homeassistant_climate_action{entity="climate.thermostat", action="cooling"})'
+
+[comfort]
+# Degrees between the heating and the cooling setpoint of the two usual pairs
+# the tool sends: 0.9 to 10.8 °F, or 0.5 to 6 °C. It must be at least the thermostat's
+# own minimum; on an ecobee that is the "Heat/Cool Min Delta" setting.
+differential = 3.0
+
+[comfort.targets]
+# The temperature each of the thermostat's comfort settings aims for, by the
+# name the thermostat gives it: 41 to 95 °F, or 5 to 35 °C. Upper and lower
+# case do not matter. The thermostat has to accept a cooling setpoint and a
+# heating setpoint at each of these temperatures.
+Home = 68.0
+# A step between night and day, so that the furnace has less far to climb in
+# one run. The house is held here on a summer morning too.
+Morning = 66.0
+Sleep = 64.0
+# A comfort setting left out is one the tool does not steer. Away is left out
+# on purpose. Its own, wider setpoints apply only if the thermostat's holds end
+# at the next scheduled activity. A vacation needs no entry: the tool leaves
+# the thermostat alone while Home Assistant reports one. Whether an ecobee
+# reports a vacation while the tool's own hold is in place has not been
+# checked; see the README.
+
+[decision]
+# All optional, shown with their defaults. The three in minutes take 0 to 2880.
+# horizon_hours = 8.0      # how far ahead to predict; 1 to 48
+# coast_minutes = 90.0     # how long the house gets to reach a new target unaided
+# min_hold_minutes = 30.0  # how long the resting rule leaves a preference the tool set
+# How far ahead to look for the house drifting further from the target than the
+# differential. Shorter runs the equipment less and lets the house wander more.
+# Neither this nor coast_minutes sees past horizon_hours: a longer look-ahead has
+# no effect, and a house predicted to arrive later than that is driven.
+# overshoot_minutes = 480.0
+
+[training]
+# All optional, shown with their defaults.
+# days = 60.0              # how far back to train; less is used if the history is shorter
+# step_minutes = 5         # spacing of the samples read from VictoriaMetrics; has to divide 60
+# window_minutes = 30      # a multiple of step_minutes; raise it if the thermostat reports in coarse steps
+
+[forecast]
+# Forecast wind is multiplied by this. Lower it if your anemometer is sheltered
+# and reads less than the forecast does.
+# wind_scale = 1.0
