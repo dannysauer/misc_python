@@ -1,0 +1,19 @@
+# Settings for trellis skills. Skills read this before asking a question.
+#
+# hvac-predict lives in one directory of a repository of otherwise unrelated
+# scripts, so trellis is rooted here and not at the repository root. Every path
+# below is relative to this directory.
+style: preserve
+paths:
+  adrs: docs/adrs
+  design: docs/design
+  living: docs/architecture
+  evidence: docs/planning/evidence
+adrs:
+  naming: date
+  owner: dannysauer
+requirements:
+  id_pattern: HVP-<NNN>
+  keywords: rfc2119
+precedence: AGENTS.md
+shared_adrs: none

@@ -1,0 +1,38 @@
+Prediction error with and without a term for stored heat, captured 2026-11-15.
+
+Source: a throwaway prototype written while the thermal model was being
+designed. It is not in the repository, so these numbers cannot be reproduced
+from it. The repository checks only part of the claim:
+tests/test_training.py::test_train_predicts_a_house_whose_walls_store_heat
+shows that the model with the term beats "no change" fourfold. Nothing in the
+repository reproduces the rows without the term.
+
+What it ran: 60 days of a simulated house whose air trades heat with walls ten
+times heavier than itself, read through an exact sensor and through one with
+0.1 °C of noise rounded to 0.5 °C. Each model was fitted to the oldest four
+fifths and replayed over the newest fifth, starting a run every hour from the
+measured temperature. The columns are the mean absolute error, in °C, 1, 2, 4
+and 8 hours ahead. "No change" assumes the temperature stays where it started.
+
+Exact sensor, 30-minute fit window:
+
+  no change                          0.33 0.46 0.62 0.86
+  without the term, lag  2 h         0.26 0.48 0.83 1.26
+  without the term, lag  4 h         0.23 0.41 0.70 1.00
+  without the term, lag  8 h         0.17 0.31 0.52 0.70
+  without the term, lag 16 h         0.12 0.21 0.33 0.43
+  without the term, lag 32 h         0.14 0.24 0.36 0.45
+  with the term,    lag  2 h         0.19 0.32 0.50 0.75
+  with the term,    lag  4 h         0.15 0.24 0.34 0.47
+  with the term,    lag  8 h         0.08 0.12 0.17 0.21
+  with the term,    lag 16 h         0.03 0.04 0.05 0.06
+  with the term,    lag 32 h         0.10 0.16 0.21 0.24
+
+Sensor with 0.1 °C of noise, rounded to 0.5 °C, 30-minute fit window:
+
+  no change                          0.34 0.46 0.63 0.86
+  without the term, lag 16 h         0.22 0.27 0.37 0.45
+  with the term,    lag  2 h         0.24 0.35 0.52 0.76
+  with the term,    lag 16 h         0.16 0.15 0.15 0.16
+
+The walls of the simulated house lag by 1 / (0.05 + 0.02) = 14.3 hours.

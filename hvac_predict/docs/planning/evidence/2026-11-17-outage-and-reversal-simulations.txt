@@ -1,0 +1,292 @@
+Outage, reversal and cold-night simulations of the setpoint-pair control,
+captured 2026-11-17.
+
+These back the tables in docs/planning/follow-up.md that the closed-loop
+receipt of 2026-11-16 does not cover. All three build on tests/closed_loop.py,
+which describes the simulated house, thermostat and schedule.
+
+The outage and reversal scenarios are scripts that reviewing agents wrote.
+They are not part of the test suite. Their text is at the end of this file as
+it was run, apart from the path to the tests directory, so that they can be
+run again from the project directory with: uv run python <script>
+
+
+1. Cold nights
+
+Four days at a mean of 2 °C outdoors, from the project directory:
+
+    simulate(4, mean_outdoor=2.0, coast_minutes=X)    # tests/closed_loop.py
+
+for X of 180, 90 and 0. "fought" counts the steps in which the equipment a
+drift was meant to keep off ran all the same. The braces count the tool's
+decisions by the rule that made them.
+
+mean 2, 4 days
+  coast 180              furnace  43.2 cooling   0.0 miss 0.59 slowest  185 changes  18 fought 0 {'drift': 48, 'drive': 74, 'hold': 2, 'overshoot': 375, 'resting': 77}
+  coast 90               furnace  44.2 cooling   1.3 miss 0.53 slowest  185 changes  21 fought 0 {'drift': 20, 'drive': 80, 'hold': 4, 'overshoot': 400, 'resting': 72}
+  coast 0                furnace  45.1 cooling   2.5 miss 0.51 slowest  190 changes  20 fought 0 {'drive': 90, 'hold': 4, 'overshoot': 412, 'resting': 70}
+
+The same run with coast_minutes=180 and the widened pair of a drift replaced
+by the usual pair (Goal.drift_pair returning Goal.pair):
+
+unwidened, coast 180: 39 drift decisions, 10 steps fought, cooling 0.8
+
+
+2. Outages
+
+Six days at a mean of 14 °C. Every five hours, starting 35 minutes into the
+measured days, Home Assistant accepts climate.set_temperature for the length
+of the outage and nothing reaches the thermostat. Reads are not affected: the
+simulated Home Assistant goes on reporting the thermostat's true state.
+
+With the code as it is now:
+
+holds end at the next comfort change; 29 outages of 10 min: 1 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds end at the next comfort change; 29 outages of 20 min: 4 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds end at the next comfort change; 29 outages of 30 min: 9 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds end at the next comfort change; 29 outages of 60 min: 26 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds last until changed; 29 outages of 10 min: 1 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds last until changed; 29 outages of 20 min: 4 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds last until changed; 29 outages of 30 min: 10 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds last until changed; 29 outages of 60 min: 35 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+
+With the code as it was before the record of pairs sent was fixed, when the
+record kept the last two pairs sent whatever the thermostat held:
+
+holds end at the next comfort change; 29 outages of 10 min: 1 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds end at the next comfort change; 29 outages of 20 min: 4 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds end at the next comfort change; 29 outages of 30 min: 10 sends lost, tool disowned its own hold 1 times, 17 of 864 runs left the thermostat alone (3 h)
+holds end at the next comfort change; 29 outages of 60 min: 27 sends lost, tool disowned its own hold 3 times, 66 of 864 runs left the thermostat alone (11 h)
+holds last until changed; 29 outages of 10 min: 1 sends lost, tool disowned its own hold 0 times, 0 of 864 runs left the thermostat alone (0 h)
+holds last until changed; 29 outages of 20 min: 3 sends lost, tool disowned its own hold 1 times, 738 of 864 runs left the thermostat alone (123 h)
+holds last until changed; 29 outages of 30 min: 2 sends lost, tool disowned its own hold 1 times, 797 of 864 runs left the thermostat alone (133 h)
+holds last until changed; 29 outages of 60 min: 2 sends lost, tool disowned its own hold 1 times, 797 of 864 runs left the thermostat alone (133 h)
+
+
+3. Reversals of preference
+
+Six days per line. A reversal is a run that sends the opposite preference from
+the run before, within one comfort setting. The second line of each pair counts
+the reversals by the rules that decided the two runs.
+
+mean  2.0 {}                               runs 864 changes  25 reversals  14 longest run-after-run streak 1 most in an hour 2 left alone 0
+      {'resting->resting': 1, 'resting->overshoot': 5, 'drive->drift': 2, 'overshoot->resting': 2, 'hold->resting': 1, 'drive->resting': 2, 'drive->overshoot': 1}
+mean  2.0 {'overshoot_minutes': 90.0}      runs 864 changes  79 reversals  67 longest run-after-run streak 2 most in an hour 3 left alone 0
+      {'resting->resting': 7, 'resting->overshoot': 30, 'hold->resting': 23, 'drive->drift': 3, 'drive->resting': 3, 'overshoot->resting': 1}
+mean  2.0 {'overshoot_minutes': 30.0}      runs 864 changes 140 reversals 130 longest run-after-run streak 2 most in an hour 4 left alone 0
+      {'resting->resting': 5, 'resting->overshoot': 63, 'hold->resting': 48, 'drive->resting': 5, 'drift->resting': 2, 'overshoot->resting': 7}
+mean  2.0 {'min_hold_minutes': 120.0}      runs 864 changes  27 reversals  15 longest run-after-run streak 1 most in an hour 2 left alone 0
+      {'resting->resting': 2, 'resting->overshoot': 6, 'drive->drift': 3, 'overshoot->resting': 2, 'drive->resting': 2}
+mean 10.0 {}                               runs 864 changes  31 reversals  24 longest run-after-run streak 1 most in an hour 2 left alone 0
+      {'resting->resting': 9, 'drive->resting': 4, 'resting->overshoot': 5, 'drive->overshoot': 3, 'drive->drift': 1, 'overshoot->resting': 1, 'hold->resting': 1}
+mean 10.0 {'overshoot_minutes': 90.0}      runs 864 changes  69 reversals  63 longest run-after-run streak 2 most in an hour 3 left alone 0
+      {'resting->resting': 21, 'drive->resting': 7, 'resting->overshoot': 22, 'hold->resting': 11, 'drive->drift': 1, 'drift->drive': 1}
+mean 10.0 {'overshoot_minutes': 30.0}      runs 864 changes  59 reversals  52 longest run-after-run streak 1 most in an hour 2 left alone 0
+      {'resting->resting': 12, 'drive->resting': 6, 'resting->overshoot': 17, 'hold->resting': 15, 'drift->drive': 1, 'drive->drift': 1}
+mean 10.0 {'min_hold_minutes': 120.0}      runs 864 changes  29 reversals  22 longest run-after-run streak 1 most in an hour 1 left alone 0
+      {'resting->resting': 9, 'hold->resting': 1, 'resting->overshoot': 5, 'drive->overshoot': 3, 'drive->resting': 2, 'drive->drift': 1, 'overshoot->resting': 1}
+mean 14.0 {}                               runs 864 changes  36 reversals  29 longest run-after-run streak 1 most in an hour 3 left alone 0
+      {'resting->resting': 3, 'resting->overshoot': 8, 'hold->resting': 5, 'drive->overshoot': 4, 'overshoot->resting': 3, 'drive->resting': 6}
+mean 14.0 {'overshoot_minutes': 90.0}      runs 864 changes  76 reversals  68 longest run-after-run streak 2 most in an hour 3 left alone 0
+      {'resting->overshoot': 26, 'hold->resting': 19, 'resting->resting': 11, 'overshoot->resting': 2, 'drive->resting': 8, 'drive->drift': 2}
+mean 14.0 {'overshoot_minutes': 30.0}      runs 864 changes 105 reversals  96 longest run-after-run streak 2 most in an hour 4 left alone 0
+      {'resting->overshoot': 40, 'hold->resting': 40, 'drive->resting': 9, 'drive->drift': 1, 'resting->resting': 6}
+mean 14.0 {'min_hold_minutes': 120.0}      runs 864 changes  33 reversals  26 longest run-after-run streak 1 most in an hour 2 left alone 0
+      {'resting->resting': 11, 'resting->overshoot': 7, 'drive->overshoot': 4, 'hold->resting': 2, 'drive->resting': 2}
+mean 18.0 {}                               runs 864 changes  26 reversals  16 longest run-after-run streak 1 most in an hour 2 left alone 0
+      {'drive->drift': 3, 'resting->resting': 4, 'resting->overshoot': 3, 'hold->resting': 1, 'drive->resting': 3, 'drive->overshoot': 2}
+mean 18.0 {'overshoot_minutes': 90.0}      runs 864 changes  97 reversals  86 longest run-after-run streak 2 most in an hour 3 left alone 0
+      {'resting->resting': 14, 'resting->overshoot': 36, 'overshoot->resting': 3, 'hold->resting': 23, 'drive->drift': 4, 'drive->resting': 6}
+mean 18.0 {'overshoot_minutes': 30.0}      runs 864 changes 155 reversals 140 longest run-after-run streak 2 most in an hour 4 left alone 0
+      {'overshoot->resting': 12, 'resting->overshoot': 65, 'hold->resting': 51, 'drive->resting': 6, 'resting->resting': 6}
+mean 18.0 {'min_hold_minutes': 120.0}      runs 864 changes  28 reversals  18 longest run-after-run streak 1 most in an hour 1 left alone 0
+      {'drive->drift': 3, 'resting->resting': 8, 'resting->overshoot': 4, 'drive->resting': 1, 'drive->overshoot': 2}
+mean 22.0 {}                               runs 864 changes  27 reversals  12 longest run-after-run streak 2 most in an hour 3 left alone 0
+      {'resting->resting': 2, 'resting->overshoot': 1, 'drive->drift': 3, 'drift->drive': 3, 'overshoot->resting': 1, 'drive->overshoot': 2}
+mean 22.0 {'overshoot_minutes': 90.0}      runs 864 changes  59 reversals  45 longest run-after-run streak 2 most in an hour 3 left alone 0
+      {'resting->resting': 10, 'resting->overshoot': 20, 'overshoot->resting': 5, 'hold->resting': 5, 'drive->drift': 2, 'drift->drive': 3}
+mean 22.0 {'overshoot_minutes': 30.0}      runs 864 changes 132 reversals 117 longest run-after-run streak 2 most in an hour 4 left alone 0
+      {'overshoot->resting': 4, 'resting->overshoot': 56, 'drift->resting': 3, 'hold->resting': 45, 'drive->resting': 4, 'resting->resting': 2, 'drift->drive': 2, 'drive->drift': 1}
+mean 22.0 {'min_hold_minutes': 120.0}      runs 864 changes  27 reversals  12 longest run-after-run streak 2 most in an hour 3 left alone 0
+      {'resting->resting': 2, 'resting->overshoot': 1, 'drive->drift': 3, 'drift->drive': 3, 'overshoot->resting': 1, 'drive->overshoot': 2}
+
+
+Script for section 2:
+
+"""The closed-loop house with an ecobee outage: for a while Home Assistant accepts
+climate.set_temperature (pyecobee logs the failure and returns) and nothing reaches
+the thermostat, whose last known state Home Assistant goes on reporting.
+
+Run from the project directory: uv run python <this file>
+"""
+
+import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+sys.path.insert(0, "tests")
+
+from closed_loop import (  # noqa: E402
+    DIFFERENTIAL,
+    STEPS_BETWEEN_RUNS,
+    STEPS_PER_DAY,
+    STEPS_PER_HOUR,
+    TARGETS,
+    SimulatedHome,
+    _config,
+    trained_house,
+)
+from fakes import FakeMetrics  # noqa: E402
+
+from hvac_predict.advisor import Steered, steer  # noqa: E402
+from hvac_predict.decision import HEAT, Goal  # noqa: E402
+from hvac_predict.training import save_model  # noqa: E402
+
+
+class OutageHome(SimulatedHome):
+    def __init__(self, simulation, outages, indefinite):
+        super().__init__(simulation)
+        self.outages = outages  # list of (first index, last index)
+        self.lost = 0
+
+    def down(self):
+        index = self._simulation.index
+        return any(first <= index < last for first, last in self.outages)
+
+    def set_temperature_range(self, entity_id, low, high):
+        if self.down():
+            self.lost += 1
+            return
+        super().set_temperature_range(entity_id, low, high)
+
+
+def run(days, mean_outdoor, outage_minutes, every_hours, *, indefinite):
+    simulation, model = trained_house(mean_outdoor)
+    simulation.setpoints = Goal(TARGETS[simulation.comfort], DIFFERENTIAL).pair(HEAT)
+    start = simulation.index
+    outage_steps = outage_minutes // 5
+    outages = [
+        (at, at + outage_steps)
+        for at in range(start + 7, start + days * STEPS_PER_DAY, every_hours * STEPS_PER_HOUR)
+    ]
+    home = OutageHome(simulation, outages, indefinite)
+    left_alone_runs = 0
+    episodes = 0  # outages after which the tool was left disowning its own hold
+    previous_left = False
+    with TemporaryDirectory() as directory:
+        config = _config(Path(directory), {})
+        save_model(model, config.model_path)
+        for _ in range(days * STEPS_PER_DAY):
+            if indefinite:
+                # A hold that lasts until changed: the schedule does not take the setpoints back.
+                pass
+            else:
+                simulation.follow_schedule(HEAT)
+            simulation.read()
+            if simulation.index % STEPS_BETWEEN_RUNS == 0:
+                metrics = FakeMetrics(simulation.history(), end=simulation.now)
+                outcome = steer(config, metrics, home, now=simulation.now, apply=True)
+                left = not isinstance(outcome, Steered)
+                left_alone_runs += left
+                episodes += left and not previous_left
+                previous_left = left
+            simulation.advance()
+    return len(outages), home.lost, episodes, left_alone_runs
+
+
+for indefinite in (False, True):
+    kind = "holds last until changed" if indefinite else "holds end at the next comfort change"
+    for minutes in (10, 20, 30, 60):
+        outages, lost, episodes, runs = run(6, 14.0, minutes, 5, indefinite=indefinite)
+        print(
+            f"{kind}; {outages} outages of {minutes} min: {lost} sends lost, tool disowned its "
+            f"own hold {episodes} times, {runs} of 864 runs left the thermostat alone "
+            f"({runs / 6:.0f} h)"
+        )
+
+
+Script for section 3:
+
+"""How often does the preference the tool sends reverse, run to run, in the closed loop?
+
+Run from the project directory: uv run python <this file>
+"""
+
+import sys
+from collections import Counter
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+sys.path.insert(0, "tests")
+
+from closed_loop import (  # noqa: E402
+    DIFFERENTIAL,
+    STEPS_BETWEEN_RUNS,
+    STEPS_PER_DAY,
+    TARGETS,
+    SimulatedHome,
+    _config,
+    trained_house,
+)
+from fakes import FakeMetrics  # noqa: E402
+
+from hvac_predict.advisor import Steered, steer  # noqa: E402
+from hvac_predict.decision import HEAT, Goal  # noqa: E402
+from hvac_predict.training import save_model  # noqa: E402
+
+
+def run(days, mean_outdoor, **decision):
+    simulation, model = trained_house(mean_outdoor)
+    simulation.setpoints = Goal(TARGETS[simulation.comfort], DIFFERENTIAL).pair(HEAT)
+    home = SimulatedHome(simulation)
+    log = []  # (index, comfort, preference sent, rule, applied, left_alone)
+    with TemporaryDirectory() as directory:
+        config = _config(Path(directory), decision)
+        save_model(model, config.model_path)
+        for _ in range(days * STEPS_PER_DAY):
+            simulation.follow_schedule(HEAT)
+            simulation.read()
+            if simulation.index % STEPS_BETWEEN_RUNS == 0:
+                metrics = FakeMetrics(simulation.history(), end=simulation.now)
+                outcome = steer(config, metrics, home, now=simulation.now, apply=True)
+                if isinstance(outcome, Steered):
+                    made = outcome.advice.decision
+                    log.append((simulation.index, simulation.comfort, made.preference, made.rule, outcome.applied))
+                else:
+                    log.append((simulation.index, simulation.comfort, None, "LEFT ALONE", False))
+            simulation.advance()
+    return log, home.changes
+
+
+def summarise(log):
+    # A reversal: this run's preference differs from the last run's, within one comfort setting.
+    reversals = [
+        (a, b) for a, b in zip(log, log[1:]) if a[1] == b[1] and a[2] != b[2]
+    ]
+    kinds = Counter(f"{a[3]}->{b[3]}" for a, b in reversals)
+    # Longest streak of consecutive runs that each reverse the one before.
+    longest = streak = 0
+    for a, b in zip(log, log[1:]):
+        streak = streak + 1 if (a[1] == b[1] and a[2] != b[2]) else 0
+        longest = max(longest, streak)
+    # Most reversals inside any hour (6 runs).
+    flags = [a[1] == b[1] and a[2] != b[2] for a, b in zip(log, log[1:])]
+    most = max(sum(flags[i : i + 6]) for i in range(len(flags)))
+    left = sum(entry[3] == "LEFT ALONE" for entry in log)
+    return len(reversals), longest, most, dict(kinds), left
+
+
+for mean in (2.0, 10.0, 14.0, 18.0, 22.0):
+    for settings in (
+        {},
+        {"overshoot_minutes": 90.0},
+        {"overshoot_minutes": 30.0},
+        {"min_hold_minutes": 120.0},
+    ):
+        log, changes = run(6, mean, **settings)
+        count, longest, most, kinds, left = summarise(log)
+        print(
+            f"mean {mean:4.1f} {settings!s:32} runs {len(log)} changes {changes:3d} reversals {count:3d} "
+            f"longest run-after-run streak {longest} most in an hour {most} left alone {left}"
+        )
+        print(f"      {kinds}")

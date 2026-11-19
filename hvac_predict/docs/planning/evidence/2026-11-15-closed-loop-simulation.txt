@@ -1,0 +1,70 @@
+Closed-loop simulation of the setpoint-pair control, captured 2026-11-15.
+
+Command, from the project directory:
+
+    uv run python tests/closed_loop.py 10
+
+What it runs: a simulated house with heavy walls and an auto-mode thermostat
+on a schedule of two comfort settings, Home at 20 °C from 06:00 to 21:00 and
+Sleep at 17.5 °C otherwise, with a differential of 2 °C. The thermostat starts
+its equipment 0.25 °C past a setpoint and stops it 0.25 °C inside. Thirty days
+on a fixed heat-preference pair train the model; the ten days after are
+measured.
+
+"Fixed" rows have no tool: at each change of comfort setting the thermostat
+goes to that kind of pair for the new target and stays there. In the other
+rows the thermostat does the same with the heat-preference pair, as an ecobee
+whose holds end at the next activity would, and the tool runs in that same
+five-minute step and every ten minutes after, through the same steer() the
+command line calls. The forecast given to the tool is the weather that then
+happens, so forecast error plays no part. "min ahead" is
+decision.overshoot_minutes, and "no hold" is decision.min_hold_minutes = 0.
+
+"Off target" is the distance between the indoor temperature and the target of
+the comfort setting in force, over every five-minute step. "A new target
+reached" is the longest the house took, after a change of comfort setting, to
+come within 0.25 °C of the new target; 540 and 900 minutes are the lengths of
+the two comfort settings, and mean the target was not reached before the next
+change. "Decisions" counts the tool's runs by the rule that decided, with the
+settling rule split into drift and drive. "Equipment ran against a drift"
+counts the steps in which the equipment a drift was meant to keep off ran
+(HVP-015).
+
+What it does not show: the three climates here seldom let the house drift to
+a lower night-time target in time, so the drift pair is exercised mostly on
+the way up in the morning. tests/test_closed_loop.py covers the evening drift
+in a colder climate.
+
+Mean outdoor temperature 10 °C, 10 days:
+  fixed heat pair          furnace  32.6 h, cooling   9.9 h, off target by 1.01 on average and 4.30 at worst, a new target reached in 540 min at the slowest, 0 setpoint changes
+  fixed cool pair          furnace  18.3 h, cooling  26.2 h, off target by 0.99 on average and 4.73 at worst, a new target reached in 900 min at the slowest, 0 setpoint changes
+  the tool, 480 min ahead  furnace  33.4 h, cooling  21.8 h, off target by 0.72 on average and 4.21 at worst, a new target reached in 160 min at the slowest, 49 setpoint changes
+      decisions: {'drift': 2, 'drive': 165, 'hold': 2, 'overshoot': 603, 'resting': 668}; equipment ran against a drift in 0 steps
+  the tool,  90 min ahead  furnace  27.9 h, cooling  17.8 h, off target by 0.90 on average and 4.24 at worst, a new target reached in 195 min at the slowest, 108 setpoint changes
+      decisions: {'drift': 4, 'drive': 159, 'hold': 69, 'overshoot': 43, 'resting': 1165}; equipment ran against a drift in 0 steps
+  the tool,  90 min ahead, no hold  furnace  26.4 h, cooling  16.3 h, off target by 0.97 on average and 4.24 at worst, a new target reached in 200 min at the slowest, 208 setpoint changes
+      decisions: {'drift': 2, 'drive': 161, 'overshoot': 89, 'resting': 1188}; equipment ran against a drift in 0 steps
+  the tool,  30 min ahead  furnace  24.7 h, cooling  16.5 h, off target by 1.01 on average and 4.20 at worst, a new target reached in 220 min at the slowest, 91 setpoint changes
+      decisions: {'drift': 7, 'drive': 166, 'hold': 49, 'overshoot': 25, 'resting': 1193}; equipment ran against a drift in 0 steps
+Mean outdoor temperature 14 °C, 10 days:
+  fixed heat pair          furnace   9.4 h, cooling  44.5 h, off target by 1.49 on average and 4.70 at worst, a new target reached in 540 min at the slowest, 0 setpoint changes
+  fixed cool pair          furnace   5.2 h, cooling  70.3 h, off target by 0.59 on average and 4.70 at worst, a new target reached in 900 min at the slowest, 0 setpoint changes
+  the tool, 480 min ahead  furnace  11.2 h, cooling  67.4 h, off target by 0.63 on average and 4.41 at worst, a new target reached in 155 min at the slowest, 60 setpoint changes
+      decisions: {'drive': 168, 'hold': 19, 'overshoot': 649, 'resting': 604}; equipment ran against a drift in 0 steps
+  the tool,  90 min ahead  furnace   8.5 h, cooling  59.2 h, off target by 0.86 on average and 4.47 at worst, a new target reached in 150 min at the slowest, 131 setpoint changes
+      decisions: {'drive': 158, 'hold': 98, 'overshoot': 189, 'resting': 995}; equipment ran against a drift in 0 steps
+  the tool,  90 min ahead, no hold  furnace   7.6 h, cooling  57.0 h, off target by 0.92 on average and 4.50 at worst, a new target reached in 170 min at the slowest, 245 setpoint changes
+      decisions: {'drift': 2, 'drive': 159, 'overshoot': 240, 'resting': 1039}; equipment ran against a drift in 0 steps
+  the tool,  30 min ahead  furnace   7.8 h, cooling  54.2 h, off target by 1.07 on average and 4.15 at worst, a new target reached in 175 min at the slowest, 169 setpoint changes
+      decisions: {'drift': 1, 'drive': 161, 'hold': 134, 'overshoot': 111, 'resting': 1033}; equipment ran against a drift in 0 steps
+Mean outdoor temperature 18 °C, 10 days:
+  fixed heat pair          furnace   3.3 h, cooling  98.4 h, off target by 1.90 on average and 4.78 at worst, a new target reached in 540 min at the slowest, 0 setpoint changes
+  fixed cool pair          furnace   2.3 h, cooling 131.0 h, off target by 0.50 on average and 4.47 at worst, a new target reached in 310 min at the slowest, 0 setpoint changes
+  the tool, 480 min ahead  furnace   6.7 h, cooling 129.1 h, off target by 0.57 on average and 4.22 at worst, a new target reached in 240 min at the slowest, 49 setpoint changes
+      decisions: {'drift': 14, 'drive': 209, 'hold': 12, 'overshoot': 906, 'resting': 299}; equipment ran against a drift in 0 steps
+  the tool,  90 min ahead  furnace   3.9 h, cooling 120.1 h, off target by 0.83 on average and 4.27 at worst, a new target reached in 260 min at the slowest, 161 setpoint changes
+      decisions: {'drift': 23, 'drive': 203, 'hold': 128, 'overshoot': 479, 'resting': 607}; equipment ran against a drift in 0 steps
+  the tool,  90 min ahead, no hold  furnace   4.2 h, cooling 119.9 h, off target by 0.86 on average and 4.33 at worst, a new target reached in 255 min at the slowest, 326 setpoint changes
+      decisions: {'drift': 19, 'drive': 209, 'overshoot': 541, 'resting': 671}; equipment ran against a drift in 0 steps
+  the tool,  30 min ahead  furnace   2.1 h, cooling 108.5 h, off target by 1.33 on average and 4.33 at worst, a new target reached in 325 min at the slowest, 223 setpoint changes
+      decisions: {'drift': 29, 'drive': 227, 'hold': 184, 'overshoot': 336, 'resting': 664}; equipment ran against a drift in 0 steps
