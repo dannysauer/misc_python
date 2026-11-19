@@ -1,6 +1,6 @@
 # Follow-up concerns and simulation testing
 
-> **Summary:** What still needs checking before `hvac-predict` steers a real thermostat, and what the simulations did and did not show. This is a snapshot written on 2026-11-17 for the review that comes before first use. Nobody will keep it current; the [open questions](../architecture/overview.md#open-questions) in the architecture overview are the list that stays up to date.
+> **Summary:** What still needs checking before `hvac-predict` steers a real thermostat, and what the simulations did and did not show. This is a snapshot written on 2026-11-17 for the review that comes before first use, and updated on 2026-11-19 after the owner's code-quality review. Nobody will keep it current; the [open questions](../architecture/overview.md#open-questions) in the architecture overview are the list that stays up to date.
 
 ## Where things stand
 
@@ -53,9 +53,10 @@ The first seven are open questions 13, 11, 19, 14, 16, 12 and 15 in the overview
 
 - **The state file matters more than it looks.** Without it the tool has no record of the hold it placed, and waits for that hold to end. A lock keeps two runs from overwriting each other's record; it uses `fcntl`, so the tool runs on Linux and macOS only.
 - **The record of pairs sent never expires.** After the tool's hold has ended, a later hold on the same setpoints, to within 0.2 degrees, would be taken for its own.
-- **Some staleness goes unchecked.** `decide` doesn't look at the age of the model, of the thermostat state it reads, or of the outdoor sensor beyond "a sample arrived in the last 20 minutes". With the example queries, the check of the indoor temperature against the thermostat compares one Home Assistant attribute with itself.
+- **Some staleness goes unchecked.** `decide` doesn't look at the age of the model, of the thermostat state it reads, or of the outdoor sensor beyond "a sample arrived in the last 20 minutes". Those 20 minutes are counted from the newest five-minute mark and not from the run, so a reading can be nearly 25 minutes old (open question 25). With the example queries, the check of the indoor temperature against the thermostat compares one Home Assistant attribute with itself.
 - **A settling house can change between drifting and driving on every run.** The hold doesn't apply while a house settles. Once it has settled, the resting rule can reverse the pair when the hold expires and the overshoot rule can reverse it back ten minutes later. [Reversals of preference](#reversals-of-preference) has the counts.
-- **A failed second write of the state file loses the hold's clock.** One early reversal is the cost.
+- **A failed second write of the state file loses the hold's clock.** So does a send that Home Assistant reports as failed and that arrived all the same. One early reversal is the cost.
+- **The model file is believed as written.** `load_model` checks that the file matches the configuration and names the right weights, and nothing else in it. A `step_seconds` edited by hand widens the staleness limit, and a zero there ends in a traceback (open question 26).
 - **The tests share one description of the ecobee.** The three stand-ins are built on `thermostat_attributes` in `tests/fakes.py`, which is the same reading of the integration's source that the code is. They can't catch a wrong reading.
 - **Only Python 3.13 has run the tests.** `pyproject.toml` allows 3.12.
 
@@ -63,7 +64,11 @@ The first seven are open questions 13, 11, 19, 14, 16, 12 and 15 in the overview
 
 Four kinds of review ran over the code as it grew: correctness, security, maintainability, and documentation. AI agents that had not written the code did them, in four rounds. Each round's findings were fixed and the next round checked the fixes, except for the last: the fixes from the fourth round have tests and seeded-fault checks behind them and no independent review. Those fixes are the record of pairs sent in `state.py`, the lock in `files.py`, the rewrite of `steer` in `advisor.py` that takes the lock and writes the record before it sends, in `thermostat.py` the matching of setpoints and the decision about whose hold the thermostat is on, a check for looping links in `config.py`, and the wording of one reason in `decision.py`.
 
-The owner's `thermo-nuclear-code-quality-review` is reserved for the owner to run, and hasn't been run. A strict maintainability reviewer stood in for it.
+The owner ran `thermo-nuclear-code-quality-review` on 2026-11-19, after those four rounds. An agent that had not written the code read all of it against that standard and did not approve it, for one reason: three pieces of the rules were in `advisor.py`, where a test of the rules alone could not reach them. They were the time a house is given to reach a new target, the limit on how far a drift's idle setpoint can go (HVP-018), and the check that the thermostat still holds the tool's choice. All three are in `decision.py` now.
+
+The same change moved the prediction out of `advisor.py` into `outlook.py`, split a 994-line test file into three, and made three smaller simplifications in `thermal.py`, `training.py` and `cli.py`. None of it was meant to change what the tool does. [The receipt](evidence/2026-11-19-restructuring-equivalence.txt) has the checks: the tests of `advise` and `steer` pass with their assertions as they were, 120,000 random decisions come out the same from the old rules and the new, two trained models and their predictions match to the last bit, and the ten-day simulation prints the same 33 lines.
+
+Two more agents then reviewed the restructuring, one for correctness and one for security. Each compared the old code with the new by its own means: 10,000 random calls of `advise` and 15 runs of the command line in one review, and 160,000 decisions and 5,000 whole runs fed hostile values in the other. They found one difference, in a case the tool cannot reach, and it is undone. Their other findings became tests, a check that a `Goal` has a real limit on its drift pair, and the two entries above about staleness and the model file, which were already true before the restructuring. Those last fixes have tests behind them and no further review.
 
 Maintainability reviews left two things alone on purpose: `advise` takes seven parameters, and the weather generator in `tests/closed_loop.py` repeats part of the one in `tests/house.py`.
 

@@ -1,0 +1,273 @@
+Restructuring of 2026-11-19: checks that it changed no behaviour
+=================================================================
+
+Captured 2026-11-19, with Python 3.13 on Linux.
+
+What changed. After the owner's thermo-nuclear-code-quality-review, the rules that
+were in advisor.py moved into decision.py: the time a house is given to reach a new
+target, the limit on a drift's idle setpoint (HVP-018), and the check that the
+thermostat still holds the tool's choice. decide() now takes the state's Change and
+Choice and the time, where it took a Settling and a Standing that advisor.py built.
+The prediction moved from advisor.py to outlook.py. thermal.py, training.py and
+cli.py were simplified. tests/test_advisor.py was split into test_advise.py,
+test_steer.py and test_outlook.py.
+
+Baseline. Commit 0a10e43, extracted with "git archive HEAD hvac_predict". Each script
+below ran once with PYTHONPATH set to the baseline's src directory and once in the
+working tree, with the same interpreter and the same installed packages.
+
+Results
+-------
+
+1. The tests. 531 pass, where 514 did. The tests of advise and steer were moved to
+   their new files line for line, with no assertion changed. The 13 tests of the
+   outlook kept their assertions and now call outlook.look_ahead directly. The tests
+   of decide() were given its new inputs, and the decisions they expect are the same.
+   Seventeen test cases are new.
+
+2. Decisions (fuzz_decide.py, below). 60,000 random cases with seed 7 and 60,000 with
+   seed 11 went through the baseline decide() and the new one. Each case draws a
+   prediction, a target, a differential, the targets that set the reach, the three
+   minute settings, a change of target or none, a choice or none, and what the
+   thermostat holds. The preference, the pair, the rule and the reason were printed
+   for each, and the two outputs compared with cmp.
+
+       seed 7:   identical, sha256 e73f4da04593b14b...
+                 drift 11546, drive 18227, hold 919, overshoot 6584, resting 22724
+       seed 11:  identical, sha256 520b8b81574c8f5a...
+
+3. Models and predictions (equiv_model.py, below). A house without heat stored in its
+   walls was trained on 30 days and one with it on 40. Each model then predicted its
+   house from readings with the newest 0, 1 and 3 samples missing. Every number of
+   both trained models and of all six predictions was printed with float.hex.
+
+       identical, 20 lines, 45402 bytes, sha256 282766201a588624...
+
+4. The closed loop. "python tests/closed_loop.py 10" printed the same 33 lines from
+   both, sha256 01ef19f433c18dbf... The figures in
+   2026-11-16-closed-loop-simulation.txt therefore still describe the code.
+
+5. Seeded faults. 35 single faults were put into the code that moved or was added,
+   one at a time, and the whole suite run against each. All 35 were caught:
+
+        1 killed   decision.py: 'clear_of = min(max(clear_of, self.reach[0]), self.reach[1])' -> ''
+        2 killed   decision.py: 'clear_of = min(max(clear_of, self.reach[0]), self.reach[1])' -> 'clear_of = max(clear_of, se
+        3 killed   decision.py: 'clear_of = min(max(clear_of, self.reach[0]), self.reach[1])' -> 'clear_of = min(clear_of, se
+        4 killed   decision.py: 'if choice is not None and holds == choice.preference and res' -> 'if choice is not None and
+        5 killed   decision.py: 'if choice is not None and holds == choice.preference and res' -> 'if choice is not None and
+        6 killed   decision.py: 'if minutes < settings.min_hold_minutes:' -> 'if minutes <= settings.min_hold_minutes:'
+        7 killed   decision.py: 'minutes = (now - choice.at) / 60' -> 'minutes = (now - choice.at) / 3600'
+        8 killed   decision.py: 'left = max(settings.coast_minutes - (now - change.at) / 60, ' -> 'left = settings.coast_minu
+        9 killed   decision.py: 'left = max(settings.coast_minutes - (now - change.at) / 60, ' -> 'left = max(settings.coast_
+       10 killed   decision.py: 'left = max(settings.coast_minutes - (now - change.at) / 60, ' -> 'left = max(settings.coast_
+       11 killed   decision.py: 'if change is not None:\n        return _settling(outlook, goa' -> ''
+       12 killed   outlook.py: '{"indoor": history.indoor, **history.drivers.series()}' -> '{"indoor": history.indoor}'
+       13 killed   outlook.py: '{"indoor": history.indoor, **history.drivers.series()}' -> 'history.drivers.series()'
+       14 killed   outlook.py: 'values[-(max_age_steps + 1) :]' -> 'values[-(max_age_steps + 2) :]'
+       15 killed   outlook.py: 'values[-(max_age_steps + 1) :]' -> 'values[-max_age_steps:]'
+       16 killed   outlook.py: 'newest = history.drivers.gaps_filled()' -> 'newest = history.drivers'
+       17 killed   outlook.py: '_WARMUP_LAGS = 4' -> '_WARMUP_LAGS = 0'
+       18 killed   outlook.py: '_idle_from_now(history.drivers).followed_by(future)' -> 'history.drivers.followed_by(future)'
+       19 killed   thermal.py: 'indoor, stored = self.indoor[starts], self.stored[starts]' -> 'indoor, stored = self.indoor[s
+       20 killed   thermal.py: 'dynamics = _Dynamics.of(model, indoor, drivers.gaps_filled()' -> 'dynamics = _Dynamics.of(mod
+       21 killed   thermal.py: 'return cls(base, pull, mass, gain, newest_weight, indoor, _s' -> 'return cls(base, pull, mass
+       22 killed   decision.py: 'if not (finite and lowest <= low and high <= highest):' -> 'if False:'
+       23 killed   decision.py: 'if not (finite and lowest <= low and high <= highest):' -> 'if not (lowest <= low and high <
+       24 killed   decision.py: 'if not (finite and lowest <= low and high <= highest):' -> 'if not (finite and lowest <= low
+       25 killed   decision.py: 'if not (finite and lowest <= low and high <= highest):' -> 'if not (finite and high <= highe
+       26 killed   advisor.py: 'holds=thermostat.preference,' -> 'holds=None,'
+       27 killed   advisor.py: 'choice=state.choice,' -> 'choice=None,'
+       28 killed   advisor.py: 'change=state.change,' -> 'change=None,'
+       29 killed   advisor.py: 'Goal(thermostat.target, comfort.differential, comfort.reach)' -> 'Goal(thermostat.target, com
+       30 killed   advisor.py: 'now=now,\n        change=state.change,' -> 'now=now + 600,\n        change=state.change,'
+       31 killed   cli.py: 'applied=outcome.applied,' -> ''
+       32 killed   cli.py: 'return _Report(left_alone=outcome.reason)' -> 'return _Report()'
+       33 killed   training.py: 'first=first,\n        stop=stop,' -> 'first=first,'
+       34 killed   training.py: 'until=until,' -> ''
+       35 killed   training.py: 'older = _fit(history, settings, lag_hours, until=holdout_sta' -> 'older = _fit(history, sett
+
+   An earlier run of this list missed two, numbers 16 and 33 above. Both gaps were
+   older than this change. Nothing checked the prediction's outdoor temperature when
+   a driver's newest sample was missing, and the test that keeps the newest history
+   out of the choice of lag time (HVP-022) used noise, which is as bad for one lag
+   time as for another. Each got a test:
+   test_outlook.py::test_a_driver_whose_newest_sample_has_not_arrived_counts_at_its_last_reading
+   and a second case, a two-day swing, in
+   test_training.py::test_the_newest_history_has_no_say_in_the_lag_time.
+
+What this does not show. That the behaviour was right to begin with, or that the
+tool behaves on a real thermostat. The random cases are of decide() alone; advise
+and steer are covered by their tests and by the closed loop, not by random cases
+of the author's. The two reviewers of this change ran random cases of their own
+through advise and steer; docs/planning/follow-up.md gives their counts.
+
+fuzz_decide.py
+--------------
+
+"""Print the decision for many random cases, through whichever `decide` is importable.
+
+The baseline `decide` took a Settling and a Standing that advisor.py built from the
+state; the restructured one takes the state's Change and Choice. The same cases go
+through both, and the two outputs are compared byte for byte.
+"""
+
+import inspect
+import json
+import sys
+
+import numpy as np
+
+from hvac_predict import decision as d
+from hvac_predict.config import DecisionSettings
+
+NEW = "now" in inspect.signature(d.decide).parameters
+MINUTES = np.arange(0, 481, 5.0)
+
+
+def cases(count: int, seed: int):
+    rng = np.random.default_rng(seed)
+    for _ in range(count):
+        differential = float(rng.choice([0.9, 1.0, 1.5, 2.0, 3.0, 4.0]))
+        targets = sorted(
+            float(t) for t in rng.choice(np.arange(15, 26, 0.5), size=rng.integers(1, 4), replace=False)
+        )
+        target = float(rng.choice(targets))
+        reach = (targets[0] - differential, targets[-1] + differential)
+        start = target + float(rng.choice([0.0, differential, -differential, rng.normal(0, 3)]))
+        times = [0.0, *sorted(rng.uniform(5, 475, size=rng.integers(0, 4)).tolist()), 480.0]
+        values = [start] + [
+            target + float(rng.choice([0.0, differential, -differential, rng.normal(0, 3)]))
+            for _ in times[1:]
+        ]
+        indoor = np.interp(MINUTES, times, values)
+        if rng.random() < 0.3:
+            indoor = np.round(indoor, 1)
+        reach_minutes = float(rng.choice([480, 240, 60]))
+        kept = MINUTES <= reach_minutes
+        outlook = d.Outlook(MINUTES[kept], indoor[kept], np.zeros(int(kept.sum())))
+        settings = DecisionSettings(
+            coast_minutes=float(rng.choice([0, 30, 90, 180, 600])),
+            overshoot_minutes=float(rng.choice([0, 90, 480, 600])),
+            min_hold_minutes=float(rng.choice([0, 30, 60])),
+        )
+        now = 1.78e9 + float(rng.integers(0, 10**6))
+        change = None
+        if rng.random() < 0.5:
+            ago = float(rng.choice([0, 5, 29.999, 30, 45, 89.9, 90, 91, 200, 700]))
+            started = start + float(rng.choice([0.0, rng.normal(0, 4), 40.0, -40.0]))
+            change = (now - 60 * ago, started)
+        choice = None
+        if rng.random() < 0.6:
+            ago = float(rng.choice([0, 10, 29.9, 30, 30.1, 45, 59.99, 60, 300]))
+            choice = (str(rng.choice(["heat", "cool"])), now - 60 * ago)
+        holds = [None, "heat", "cool"][int(rng.integers(0, 3))]
+        yield outlook, target, differential, reach, settings, now, change, choice, holds
+
+
+def decided(outlook, target, differential, reach, settings, now, change, choice, holds):
+    if NEW:
+        return d.decide(
+            outlook,
+            d.Goal(target, differential, reach),
+            settings,
+            now=now,
+            change=None if change is None else d.Change(*change),
+            choice=None if choice is None else d.Choice(*choice),
+            holds=holds,
+        )
+    # What advisor._settling and advisor._standing did before the rules moved.
+    settling = None
+    if change is not None:
+        at, started = change
+        settling = d.Settling(
+            minutes_left=max(settings.coast_minutes - (now - at) / 60, 0.0),
+            started_from=min(max(started, reach[0]), reach[1]),
+        )
+    standing = None
+    if choice is not None and holds == choice[0]:
+        standing = d.Standing(choice[0], (now - choice[1]) / 60)
+    return d.decide(outlook, d.Goal(target, differential), settings, settling=settling, standing=standing)
+
+
+if __name__ == "__main__":
+    count, seed = int(sys.argv[1]), int(sys.argv[2])
+    rules: dict[str, int] = {}
+    for case in cases(count, seed):
+        made = decided(*case)
+        rules[made.rule] = rules.get(made.rule, 0) + 1
+        print(json.dumps([made.preference, list(made.setpoints), made.rule, made.reason]))
+    print(json.dumps({"api": "new" if NEW else "old", "rules": dict(sorted(rules.items()))}), file=sys.stderr)
+
+equiv_model.py
+--------------
+
+"""Train a model and predict a house through whichever code is importable, and print every number.
+
+Run against the baseline and the restructured code; the two outputs are compared byte for byte.
+Floats are printed with float.hex, so the comparison is exact.
+"""
+
+import dataclasses
+import importlib.util
+import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, "tests")
+from fakes import ALL_DRIVERS, NOW, WEATHER_UNITS, FakeMetrics, hourly_forecast, write_config  # noqa: E402
+from house import simulate_house  # noqa: E402
+
+from hvac_predict.forecast import parse_forecast  # noqa: E402
+from hvac_predict.training import train  # noqa: E402
+
+NEW = importlib.util.find_spec("hvac_predict.outlook") is not None
+
+
+def exact(value):
+    if isinstance(value, float):
+        return value.hex()
+    if isinstance(value, dict):
+        return {key: exact(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [exact(item) for item in value]
+    return value
+
+
+def outlook_of(config, trained, metrics, forecast, now):
+    if NEW:
+        from hvac_predict.outlook import look_ahead, recent_history
+
+        history = recent_history(metrics, config, trained.model, now)
+        return look_ahead(config, trained, history, forecast)
+    from hvac_predict import advisor
+    from hvac_predict.grid import TimeGrid
+    from hvac_predict.history import load_history
+
+    model = trained.model
+    warmup_seconds = advisor._WARMUP_LAGS * model.lag_hours * 3600
+    history = load_history(metrics, config, TimeGrid.covering(now, warmup_seconds, model.step_seconds))
+    return advisor._outlook(config, trained, history, forecast)
+
+
+for walls, days in ((False, 30), (True, 40)):
+    house = simulate_house(days=days, end=NOW, walls=walls)
+    series = {"indoor": house.indoor, **dataclasses.asdict(house.drivers)}
+    with tempfile.TemporaryDirectory() as directory:
+        config = write_config(Path(directory), history=ALL_DRIVERS, training={"days": float(days)})
+        trained = train(config, FakeMetrics(series), now=NOW)
+        print("trained", walls, exact(dataclasses.asdict(trained)))
+        forecast = parse_forecast(
+            hourly_forecast(12, temperature=8.0, wind_speed=12.0, precipitation=0.4, cloud_coverage=60),
+            WEATHER_UNITS,
+            config.units,
+        )
+        for gap in (0, 1, 3):
+            gappy = {name: values.copy() for name, values in series.items()}
+            if gap:
+                for name in ("indoor", "outdoor", "wind", "heating"):
+                    gappy[name][-gap:] = np.nan
+            outlook = outlook_of(config, trained, FakeMetrics(gappy), forecast, NOW)
+            for name in ("minutes", "indoor", "outdoor"):
+                print("outlook", walls, gap, name, exact(getattr(outlook, name).tolist()))

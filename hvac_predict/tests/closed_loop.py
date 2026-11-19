@@ -37,7 +37,7 @@ from fakes import (
 from house import STEP_SECONDS, step
 
 from hvac_predict.advisor import Steered, steer
-from hvac_predict.config import Config
+from hvac_predict.config import ComfortSettings, Config
 from hvac_predict.decision import COOL, HEAT, Decision, Goal, Pair, Preference
 from hvac_predict.homeassistant import EntityState
 from hvac_predict.solar import clear_sky_irradiance, cloud_attenuation
@@ -52,6 +52,7 @@ STEPS_BETWEEN_RUNS = 2  # the tool runs every ten minutes
 FORECAST_HOURS = 12
 DIFFERENTIAL = 2.0
 TARGETS = {"Home": 20.0, "Sleep": 17.5}
+REACH = ComfortSettings(DIFFERENTIAL, TARGETS).reach
 HOME_HOURS = range(6, 21)  # the schedule is at Home from 06:00 to 21:00
 # The thermostat starts its equipment this far past a setpoint and stops it this far inside.
 HYSTERESIS = 0.25
@@ -139,7 +140,7 @@ class Simulation:
         """At a change of comfort setting, go to the thermostat's own setpoints for the new one."""
         if self.index and self.comfort == comfort_at(self.now - STEP_SECONDS):
             return
-        self.setpoints = Goal(TARGETS[self.comfort], DIFFERENTIAL).pair(program)
+        self.setpoints = Goal(TARGETS[self.comfort], DIFFERENTIAL, REACH).pair(program)
         self.preset = scheduled_preset(self.comfort)
 
     def read(self) -> None:
@@ -232,7 +233,7 @@ def simulate(
     """
     simulation, model = trained_house(mean_outdoor)
     # The measured days begin on the program's own pair, not on the one training ended with.
-    simulation.setpoints = Goal(TARGETS[simulation.comfort], DIFFERENTIAL).pair(program)
+    simulation.setpoints = Goal(TARGETS[simulation.comfort], DIFFERENTIAL, REACH).pair(program)
     home = SimulatedHome(simulation)
     first = simulation.index
     rules: Counter[str] = Counter()

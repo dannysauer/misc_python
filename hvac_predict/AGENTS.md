@@ -59,6 +59,7 @@ Conventions the code keeps:
 
 - Every temperature inside the code is in `units.temperature`, the unit the history queries return. Temperatures change unit at the edges only: `thermostat.py` for the thermostat's setpoints and reading, and `forecast.py` for the forecast. Limits written in Celsius, in `limits.py`, `config.py` and `advisor.py`, are converted where they are applied.
 - `thermal.py` and `decision.py` do no I/O. Keep the model and the rules testable without fakes.
+- A rule about which pair to choose belongs in `decision.py`, with a test in `tests/test_decision.py` that needs no fakes. That includes any limit on a setpoint. `advisor.py` gathers what the rules need and records what the tool did. It applies no rule of its own.
 - What the code takes an ecobee to report is in `thermostat.py`, apart from the default name of the comfort attribute in `config.py`. In the tests, `thermostat_attributes` in `tests/fakes.py` is the one place that names the attributes a thermostat reports, and the stand-ins in `tests/test_cli.py` and `tests/closed_loop.py` build on it. Change the two together.
 - An error an operator can fix is an `HvacPredictError`, and the command line prints it on one line. Anything else is a bug and may show a traceback.
 - Data from VictoriaMetrics and Home Assistant is untrusted, and so is `state.json`. Check its form where it is read, and treat an unbelievable reading as missing.

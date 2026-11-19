@@ -36,7 +36,7 @@ The tool never talks to the thermostat itself. Home Assistant's ecobee integrati
 
 ## Building blocks
 
-All of the code is in `src/hvac_predict/`. The tests are in `tests/`, one `test_<module>.py` for most modules; `errors.py`, `grid.py`, `history.py` and `limits.py` are tested through the modules that use them.
+All of the code is in `src/hvac_predict/`. The tests are in `tests/`, one `test_<module>.py` for most modules. `advisor.py` has two, `test_advise.py` and `test_steer.py`, one for each of its functions. `errors.py`, `grid.py`, `history.py` and `limits.py` are tested through the modules that use them.
 
 | Module | Owns |
 | --- | --- |
@@ -44,10 +44,11 @@ All of the code is in `src/hvac_predict/`. The tests are in `tests/`, one `test_
 | `config.py` | Loading and validating `hvac-predict.toml`. |
 | `thermal.py` | The thermal model: fitting it, running it forward, and replaying history to measure it. No I/O. |
 | `training.py` | `train`: splitting the history, choosing the lag time, judging the model, and reading and writing `model.json`. |
-| `decision.py` | The rules that choose a pair from a prediction. No I/O. |
+| `decision.py` | The rules that choose a pair from a prediction, including the time a house is given to reach a new target, the limit on how far a setpoint can go, and the hold. Also the two things the rules remember between runs, a change of target and the tool's last choice. No I/O. |
 | `thermostat.py` | Reading the thermostat, deciding whether it is the tool's to steer, including whose hold it is on, and sending setpoints. Everything the code assumes about an ecobee is here, apart from the default name of the comfort attribute in `config.py`, and so is the conversion between Home Assistant's temperature unit and the history's. |
-| `advisor.py` | `decide`: one run from start to finish in `steer`, and in `advise` the prediction and the choice. |
-| `state.py` | What one run leaves for the next in `state.json`: the target and when it changed, the preference the tool set, and the pairs it has on record as sent. Also when a house has reached a changed target. |
+| `outlook.py` | The prediction of the house left alone: how much history it starts from, how old a reading may be, and how far ahead it reaches. |
+| `advisor.py` | `decide`: one run from start to finish in `steer`, and in `advise` the steps that change nothing. It checks the thermostat's reading against the history, and leaves the prediction to `outlook.py` and the choice to `decision.py`. |
+| `state.py` | What one run leaves for the next in `state.json`: the target and when it changed, the preference the tool set, and the pairs it has on record as sent. Also noticing a changed target, and when a house has reached it. |
 | `history.py` | Loading the configured series from VictoriaMetrics onto a time grid. |
 | `forecast.py` | Turning Home Assistant's hourly forecast into the model's drivers. |
 | `solar.py` | The sun's position, clear-sky sunlight, and calibrating a light sensor against it. |
@@ -55,7 +56,7 @@ All of the code is in `src/hvac_predict/`. The tests are in `tests/`, one `test_
 | `victoriametrics.py`, `homeassistant.py`, `http.py` | The two service clients and the JSON-over-HTTP layer they share, which turns every failure into a one-line error. |
 | `files.py`, `errors.py` | Atomic file writes, the lock that keeps two runs apart, and the errors an operator can fix. |
 
-Three test helpers matter to anyone changing behaviour. `tests/fakes.py` stands in for both services; its `thermostat_attributes` is the one place the tests spell out what an ecobee is taken to report, and the stand-ins in `tests/test_cli.py` and `tests/closed_loop.py` build on it. `tests/house.py` simulates a house whose physics are known, written without the package's model code so that it can check it. `tests/closed_loop.py` runs `steer` against that house and a simulated auto-mode thermostat for days, and can be run by hand.
+Four test helpers matter to anyone changing behaviour. `tests/fakes.py` stands in for both services; its `thermostat_attributes` is the one place the tests spell out what an ecobee is taken to report, and the stand-ins in `tests/test_cli.py` and `tests/closed_loop.py` build on it. `tests/house.py` simulates a house whose physics are known, written without the package's model code so that it can check it. `tests/advising.py` holds the leaky house and the steady readings that the tests of `advise`, `steer` and the outlook share. `tests/closed_loop.py` runs `steer` against the simulated house and a simulated auto-mode thermostat for days, and can be run by hand.
 
 ## How a decision is made
 
@@ -144,3 +145,5 @@ Checks 2 and 3 change the real thermostat: check 2 through a service call, check
 22. **Should the state come from Home Assistant's history instead of a file?** See the [state file record](../adrs/2026-11-15-keep-what-the-last-run-saw-in-a-state-file.md).
 23. **What catches a frozen sensor, or an old model?** The history's indoor temperature is checked against the thermostat's own reading. With the example query both are the same Home Assistant attribute, so the check catches a wrong query or unit and not a frozen thermostat. The climate entity's `last_updated` could be checked instead. Nothing checks the outdoor sensor, and `decide` does not look at the model's age.
 24. **Should a paused run keep the clock?** A run that leaves the thermostat alone writes nothing, so after a pause of more than 30 minutes a change of target is taken to be as old as the pause.
+25. **Should a reading's age be counted from the run?** HVP-008 gives a reading 20 minutes. The code counts them back from the newest five-minute mark, which can be almost five minutes before the run, so a reading nearly 25 minutes old is still acted on.
+26. **Should the model file be checked as closely as the state file?** `load_model` checks the format number, the names of the weights, and that the settings the model depends on are unchanged. It believes the rest. A `step_seconds` edited by hand stretches the 20 minutes of HVP-008 with it, and a zero there ends in a traceback.

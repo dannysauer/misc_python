@@ -4,7 +4,8 @@ import json
 import numpy as np
 import pytest
 
-from hvac_predict.state import Change, Choice, State, load_state, observe, save_state
+from hvac_predict.decision import Change, Choice
+from hvac_predict.state import State, load_state, observe, save_state
 
 NOW = 1_780_000_000.0
 # The target dropped from 68 to 64 forty minutes ago, with the house at 68.
@@ -144,6 +145,12 @@ def test_the_pair_the_thermostat_holds_stays_on_record_however_many_sends_are_lo
         state = state.sending(pair, over=cool)
 
     assert state.sent == ((58.0, 64.0), (64.0, 72.0), (57.0, 64.0), cool)
+
+
+def test_a_pair_that_is_not_on_record_cannot_be_the_one_the_thermostat_holds():
+    # HVP-024. Going on would put a pair the tool never sent on record as its own.
+    with pytest.raises(ValueError, match="not in tuple"):
+        SENT.sending((64.0, 71.0), over=(50.0, 80.0))
 
 
 @pytest.mark.parametrize("state", [ON_ITS_WAY, SETTLED, SENT, State(target=64.0, seen_at=NOW)])

@@ -6,8 +6,8 @@ import os
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
@@ -28,19 +28,22 @@ Give --config before the command. {_HOME_ASSISTANT_TOKEN} holds a Home Assistant
 access token, which decide needs. {_VICTORIAMETRICS_TOKEN} holds a bearer token for
 VictoriaMetrics, if it wants one. The exit status is 0 on success, 1 when the
 configuration, the data or a server is at fault, and 2 for a mistake on the command line."""
-# What --json prints for a thermostat left alone: the keys of a decision with nothing in them.
-_NOTHING_DECIDED: dict[str, Any] = {
-    "preference": None,
-    "setpoints": None,
-    "rule": None,
-    "reason": None,
-    "current_setpoints": None,
-    "comfort": None,
-    "target": None,
-    "applied": False,
-    "left_alone": None,
-    "outlook": [],
-}
+
+
+@dataclass(frozen=True)
+class _Report:
+    """What --json prints: the same keys whatever happened, empty where nothing was decided."""
+
+    preference: str | None = None
+    setpoints: list[float] | None = None
+    rule: str | None = None
+    reason: str | None = None
+    current_setpoints: list[float] | None = None
+    comfort: str | None = None
+    target: float | None = None
+    applied: bool = False
+    left_alone: str | None = None
+    outlook: list[dict[str, float]] = field(default_factory=list)
 
 
 def main(argv: list[str] | None = None, *, clock: Callable[[], float] = time.time) -> int:
@@ -125,7 +128,7 @@ def _decide(
     home = HomeAssistant.connect(config.homeassistant.url, token)
     outcome = steer(config, metrics, home, now=now, apply=apply)
     if as_json:
-        print(json.dumps(_as_json(outcome)))
+        print(json.dumps(asdict(_report(outcome))))
     elif isinstance(outcome, LeftAlone):
         print(f"Not steering the thermostat: {outcome.reason}")
     else:
@@ -188,27 +191,25 @@ def _pair(setpoints: Pair, unit: str) -> str:
     return f"{setpoints[0]:.1f} to {setpoints[1]:.1f} {unit}"
 
 
-def _as_json(outcome: Steered | LeftAlone) -> dict[str, Any]:
-    """Return what --json prints, which has the same keys whatever happened."""
+def _report(outcome: Steered | LeftAlone) -> _Report:
     if isinstance(outcome, LeftAlone):
-        return _NOTHING_DECIDED | {"left_alone": outcome.reason}
+        return _Report(left_alone=outcome.reason)
     advice = outcome.advice
     thermostat = advice.thermostat
-    return {
-        "preference": advice.decision.preference,
-        "setpoints": list(advice.decision.setpoints),
-        "rule": advice.decision.rule,
-        "reason": advice.decision.reason,
-        "current_setpoints": list(thermostat.setpoints) if thermostat.setpoints else None,
-        "comfort": thermostat.comfort,
-        "target": advice.goal.target,
-        "applied": outcome.applied,
-        "left_alone": None,
-        "outlook": [
+    return _Report(
+        preference=advice.decision.preference,
+        setpoints=list(advice.decision.setpoints),
+        rule=advice.decision.rule,
+        reason=advice.decision.reason,
+        current_setpoints=list(thermostat.setpoints) if thermostat.setpoints else None,
+        comfort=thermostat.comfort,
+        target=advice.goal.target,
+        applied=outcome.applied,
+        outlook=[
             {"minutes": minutes, "indoor": round(indoor, 2), "outdoor": round(outdoor, 2)}
             for minutes, indoor, outdoor in _hourly(advice.outlook)
         ],
-    }
+    )
 
 
 def _hourly(outlook: Outlook) -> list[tuple[float, float, float]]:

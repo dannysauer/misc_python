@@ -72,11 +72,17 @@ def test_train_keeps_the_fit_to_all_of_the_history(house, tmp_path):
     assert trained.history_days == pytest.approx(DAYS, abs=0.01)
 
 
-def test_the_newest_history_has_no_say_in_the_lag_time(heavy, tmp_path):
-    # HVP-022
+@pytest.mark.parametrize("replaced_by", ["noise", "a-two-day-swing"])
+def test_the_newest_history_has_no_say_in_the_lag_time(heavy, tmp_path, replaced_by):
+    # HVP-022. A search that looked at the newest fifth would shrug off the noise, which is as
+    # bad for one lag time as for another, and would pick a short lag time for the swing.
     scrambled = heavy.indoor.copy()
     newest = slice(len(scrambled) - int(len(scrambled) * 0.2), None)
-    scrambled[newest] = np.random.default_rng(8).uniform(15, 30, len(scrambled[newest]))
+    hours = np.arange(len(scrambled))[newest] * STEP_SECONDS / 3600
+    scrambled[newest] = {
+        "noise": np.random.default_rng(8).uniform(15, 30, len(hours)),
+        "a-two-day-swing": 21 + 4 * np.sin(2 * np.pi * hours / 48),
+    }[replaced_by]
 
     _, trained = train_on(heavy, tmp_path, days=40.0)
     _, disturbed = train_on(dataclasses.replace(heavy, indoor=scrambled), tmp_path, days=40.0)

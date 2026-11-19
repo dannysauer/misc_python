@@ -71,6 +71,10 @@ class Drivers:
     def __len__(self) -> int:
         return len(self.outdoor)
 
+    def series(self) -> dict[str, np.ndarray]:
+        """Return every driver's series under its name."""
+        return {spec.name: getattr(self, spec.name) for spec in fields(self)}
+
     def followed_by(self, later: "Drivers") -> "Drivers":
         """Return these drivers with ``later`` appended on the time axis."""
         return self._each(lambda name, values: np.concatenate([values, getattr(later, name)]))
@@ -80,9 +84,7 @@ class Drivers:
         return self._each(lambda name, values: _carried_forward(values))
 
     def _each(self, change: Callable[[str, np.ndarray], np.ndarray]) -> "Drivers":
-        return Drivers(
-            **{spec.name: change(spec.name, getattr(self, spec.name)) for spec in fields(self)}
-        )
+        return Drivers(**{name: change(name, values) for name, values in self.series().items()})
 
 
 @dataclass(frozen=True)
@@ -187,10 +189,9 @@ def predict(model: ThermalModel, indoor: np.ndarray, drivers: Drivers) -> np.nda
     element is the end of the future. A driver with no reading at a grid point
     is taken not to have changed since its last one.
     """
-    stored = _smooth(indoor, _newest_weight(model.step_seconds, model.lag_hours))
     start = np.flatnonzero(np.isfinite(indoor))[-1:]
-    dynamics = _Dynamics.of(model, drivers.gaps_filled())
-    return dynamics.run(start, len(drivers) - 1 - int(start[0]), indoor[start], stored[start])[0]
+    dynamics = _Dynamics.of(model, indoor, drivers.gaps_filled())
+    return dynamics.run(start, len(drivers) - 1 - int(start[0]))[0]
 
 
 def backtest(
@@ -209,7 +210,7 @@ def backtest(
     assuming the temperature simply stays where it started. Runs that would
     cross a missing reading are left out; with none left, the result is empty.
     """
-    dynamics = _Dynamics.of(model, drivers)
+    dynamics = _Dynamics.of(model, indoor, drivers)
     steps = [round(hours / model.step_hours) for hours in horizons_hours]
     stride = max(round(1 / model.step_hours), 1)
     starts = np.arange(first, (len(indoor) if stop is None else stop) - max(steps), stride)
@@ -219,8 +220,7 @@ def backtest(
     if not starts.size:
         return []
 
-    stored = _smooth(indoor, _newest_weight(model.step_seconds, model.lag_hours))
-    runs = dynamics.run(starts, max(steps), indoor[starts], stored[starts])
+    runs = dynamics.run(starts, max(steps))
     actual = indoor[starts[:, None] + steps]
     model_errors = np.abs(runs[:, steps] - actual).mean(axis=0)
     no_change_errors = np.abs(indoor[starts, None] - actual).mean(axis=0)
@@ -247,29 +247,32 @@ class _Dynamics:
     mass: np.ndarray
     gain: np.ndarray
     newest_weight: float
+    # The measured history that runs start from, and its smoothed counterpart.
+    indoor: np.ndarray
+    stored: np.ndarray
 
     @classmethod
-    def of(cls, model: ThermalModel, drivers: Drivers) -> "_Dynamics":
+    def of(cls, model: ThermalModel, indoor: np.ndarray, drivers: Drivers) -> "_Dynamics":
+        """Build the dynamics over the grid of ``drivers``, which may run on past ``indoor``."""
         newest_weight = _newest_weight(model.step_seconds, model.lag_hours)
         zeros, ones = np.zeros(len(drivers)), np.ones(len(drivers))
 
-        def rate(indoor: np.ndarray, stored: np.ndarray) -> np.ndarray:
-            return _design(indoor, stored, drivers, newest_weight) @ model.weights
+        def rate(probe: np.ndarray, stored: np.ndarray) -> np.ndarray:
+            return _design(probe, stored, drivers, newest_weight) @ model.weights
 
         # The rate is linear in both temperatures, so three probes recover its parts.
         base = rate(zeros, zeros)
         pull, mass = rate(ones, zeros) - base, rate(zeros, ones) - base
         overshoots = pull * model.step_hours < -1
         gain = np.where(overshoots, -1 / np.where(overshoots, pull, 1.0), model.step_hours)
-        return cls(base, pull, mass, gain, newest_weight)
+        return cls(base, pull, mass, gain, newest_weight, indoor, _smooth(indoor, newest_weight))
 
-    def run(
-        self, starts: np.ndarray, steps: int, indoor: np.ndarray, stored: np.ndarray
-    ) -> np.ndarray:
+    def run(self, starts: np.ndarray, steps: int) -> np.ndarray:
         """Run forward ``steps`` grid points from each of ``starts``, one row per start.
 
-        Column 0 holds the starting temperatures.
+        Column 0 holds the starting temperatures, which are the measured ones.
         """
+        indoor, stored = self.indoor[starts], self.stored[starts]
         temperatures = np.empty((len(starts), steps + 1))
         temperatures[:, 0] = indoor
         for step in range(steps):

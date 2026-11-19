@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from .decision import COOL, HEAT, Pair, Preference
+from .decision import COOL, HEAT, Change, Choice, Pair, Preference
 from .files import write_atomically
 from .limits import finite
 
@@ -31,25 +31,10 @@ _MAX_CHARACTERS = 10_000
 _MAX_UNCONFIRMED = 2
 
 
-# The field names of the three classes below are the keys of the state file.
-# Renaming one makes every file written before unreadable, and a file that
-# cannot be read costs the tool its record of the hold it placed.
-
-
-@dataclass(frozen=True)
-class Change:
-    """A change of target that the house has not caught up with yet."""
-
-    at: float  # when the target changed, as nearly as the tool can tell
-    started_from: float  # the indoor temperature when the tool first saw the new target
-
-
-@dataclass(frozen=True)
-class Choice:
-    """A preference the tool set on the thermostat."""
-
-    preference: Preference
-    at: float
+# The field names of State, and of the Change and the Choice inside it, are the
+# keys of the state file. Renaming one makes every file written before
+# unreadable, and a file that cannot be read costs the tool its record of the
+# hold it placed.
 
 
 @dataclass(frozen=True)
@@ -88,6 +73,9 @@ class State:
         with no hold in force. It stays on record, with the pairs sent since it
         was sent, because nobody knows which of those sends arrived. With no
         hold in force none of the old pairs can be what the thermostat holds.
+
+        A pair that is not on record raises ValueError. Going on would put a
+        pair the tool never sent on record as its own.
         """
         if over is None:
             return replace(self, sent=(setpoints,))

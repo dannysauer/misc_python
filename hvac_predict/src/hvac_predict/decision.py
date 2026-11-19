@@ -25,13 +25,18 @@ The choice is made from a prediction of the house left alone.
 3. Resting. The house stays in that range unaided. Hold the pair whose
    setpoints it sits between, so that nothing runs.
 
-Rule 3 does not reverse a preference the tool set a few minutes ago, so that a
-house hovering at the target does not have its setpoints moved on every run.
-Rules 1 and 2 are never held up: they are the ones the house needs.
+Rule 3 does not reverse a preference the tool set a few minutes ago and the
+thermostat still holds, so that a house hovering at the target does not have
+its setpoints moved on every run. Rules 1 and 2 are never held up: they are
+the ones the house needs.
 
 The drift pair of rule 1 is the only one wider than the differential. Its
-idle setpoint follows ``Settling.started_from``, so whoever builds a
-``Settling`` decides how far it can go.
+idle setpoint follows where the house started, held to ``Goal.reach``, so no
+setpoint goes further than a differential and a degree beyond the usual pairs
+of the configured targets.
+
+The rules remember two things from one run to the next, a ``Change`` of target
+and the tool's last ``Choice``. ``state.py`` keeps both in the state file.
 """
 
 import math
@@ -73,6 +78,15 @@ class Goal:
 
     target: float
     differential: float
+    # The temperatures the usual pairs of all the configured targets keep a house between.
+    reach: Pair
+
+    def __post_init__(self) -> None:
+        # The reach is what bounds a drift pair, so it has to be a real bound.
+        (lowest, highest), (low, high) = self.reach, self.range
+        finite = math.isfinite(lowest) and math.isfinite(highest)
+        if not (finite and lowest <= low and high <= highest):
+            raise ValueError(f"the reach {self.reach} does not take in the pairs of {self.target}")
 
     @property
     def range(self) -> Pair:
@@ -97,27 +111,37 @@ class Goal:
         the target, where it would start the very equipment the drift avoids,
         so it goes a differential beyond ``clear_of``, rounded outwards to a
         whole degree, and never nearer the target than its usual place.
+
+        ``clear_of`` is held to ``reach`` first. The pair of some target held
+        the house until the change, so it started within their reach, and
+        holding it to that bounds how far the idle setpoint can go, whatever a
+        state file or a sensor says.
         """
         low, high = self.pair(preference)
+        clear_of = min(max(clear_of, self.reach[0]), self.reach[1])
         if preference == HEAT:
             return low, max(high, math.ceil(clear_of) + self.differential)
         return min(low, math.floor(clear_of) - self.differential), high
 
 
-@dataclass(frozen=True)
-class Settling:
-    """A house on its way to a target that has just changed."""
-
-    minutes_left: float  # of the time it is given to get there unaided; zero once that is up
-    started_from: float  # the indoor temperature when the target changed
+# The state file keeps a Change and a Choice under these field names. Renaming
+# one makes every file written before unreadable; see state.py.
 
 
 @dataclass(frozen=True)
-class Standing:
-    """The preference the tool last set, which the thermostat still holds."""
+class Change:
+    """A change of target that the house has not caught up with yet."""
+
+    at: float  # when the target changed, as nearly as the tool can tell
+    started_from: float  # the indoor temperature when the tool first saw the new target
+
+
+@dataclass(frozen=True)
+class Choice:
+    """A preference the tool set on the thermostat."""
 
     preference: Preference
-    minutes: float  # since the tool set it
+    at: float
 
 
 @dataclass(frozen=True)
@@ -133,39 +157,46 @@ def decide(
     goal: Goal,
     settings: DecisionSettings,
     *,
-    settling: Settling | None = None,
-    standing: Standing | None = None,
+    now: float,
+    change: Change | None = None,
+    choice: Choice | None = None,
+    holds: Preference | None = None,
 ) -> Decision:
-    """Choose the pair of setpoints the thermostat should hold.
+    """Choose the pair of setpoints the thermostat should hold at the time ``now``.
 
-    ``settling`` is None once the house has been at the target. ``standing``
-    is None when the thermostat holds nothing the tool chose.
+    ``change`` is None once the house has been at the target. ``choice`` is
+    the preference the tool last set, if it has set one for this target, and
+    ``holds`` is the preference the thermostat holds now, if its setpoints are
+    one.
     """
-    if settling is not None:
-        return _settling(outlook, goal, settling)
+    if change is not None:
+        return _settling(outlook, goal, settings, change, now)
     ahead = outlook.within(settings.overshoot_minutes)
-    choice = _overshoot(ahead, goal)
-    if choice is not None:
-        return choice
-    choice = _resting(ahead, goal)
-    if (
-        standing is not None
-        and standing.preference != choice.preference
-        and standing.minutes < settings.min_hold_minutes
-    ):
-        return Decision(
-            standing.preference,
-            goal.pair(standing.preference),
-            "hold",
-            f"Keeping the {standing.preference} preference because it was chosen "
-            f"{standing.minutes:.0f} min ago. Otherwise {choice.preference}: {choice.reason}",
-        )
-    return choice
+    overshoot = _overshoot(ahead, goal)
+    if overshoot is not None:
+        return overshoot
+    resting = _resting(ahead, goal)
+    # The hold: a choice the thermostat still holds is not reversed while it is fresh.
+    if choice is not None and holds == choice.preference and resting.preference != holds:
+        minutes = (now - choice.at) / 60
+        if minutes < settings.min_hold_minutes:
+            return Decision(
+                choice.preference,
+                goal.pair(choice.preference),
+                "hold",
+                f"Keeping the {choice.preference} preference because it was chosen "
+                f"{minutes:.0f} min ago. Otherwise {resting.preference}: {resting.reason}",
+            )
+    return resting
 
 
-def _settling(outlook: Outlook, goal: Goal, settling: Settling) -> Decision:
+def _settling(
+    outlook: Outlook, goal: Goal, settings: DecisionSettings, change: Change, now: float
+) -> Decision:
     """Decide how a house that has not reached a new target should get there."""
-    target, left = goal.target, settling.minutes_left
+    # What is left of the time the house is given to get there unaided; zero once that is up.
+    left = max(settings.coast_minutes - (now - change.at) / 60, 0.0)
+    target = goal.target
     too_warm = outlook.indoor[0] > target
     # Above the target, the heat preference only heats, so the house is free to
     # cool down to it; the cool preference would run the air conditioner.
@@ -179,7 +210,7 @@ def _settling(outlook: Outlook, goal: Goal, settling: Settling) -> Decision:
     if arrival <= left:
         return Decision(
             drift,
-            goal.drift_pair(drift, clear_of=settling.started_from),
+            goal.drift_pair(drift, clear_of=change.started_from),
             "drift",
             f"The target is newly {target:g}, and left alone the house {verb}s to it "
             f"in {_span(arrival)}, inside the {_span(left)} it has left.",

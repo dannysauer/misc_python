@@ -1,20 +1,18 @@
 """Fit the thermal model to VictoriaMetrics history and keep it as a JSON file."""
 
 import json
-from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from .config import Config
+from .config import Config, TrainingSettings
 from .errors import ConfigError, DataError
 from .files import write_atomically
 from .grid import TimeGrid
-from .history import load_history
+from .history import History, load_history
 from .solar import clear_sky_irradiance, light_per_irradiance
 from .thermal import FEATURES, Fit, HorizonError, ThermalModel, backtest, fit
 from .victoriametrics import VictoriaMetrics
@@ -76,19 +74,9 @@ def train(config: Config, metrics: VictoriaMetrics, *, now: float) -> TrainedMod
     holdout_start = grid.size - int(span * HOLDOUT_SHARE)
     tuning_start = holdout_start - int(span * TUNING_SHARE)
 
-    fit_history = partial(
-        fit,
-        history.indoor,
-        history.drivers,
-        step_seconds=settings.step_seconds,
-        window_steps=settings.window_steps,
-    )
-    replay = partial(
-        backtest, indoor=history.indoor, drivers=history.drivers, horizons_hours=_HORIZONS_HOURS
-    )
-    lag_hours = _best_lag(fit_history, replay, tuning_start, holdout_start)
-    older = fit_history(lag_hours=lag_hours, until=holdout_start)
-    final = fit_history(lag_hours=lag_hours)
+    lag_hours = _best_lag(history, settings, tuning_start, holdout_start)
+    older = _fit(history, settings, lag_hours, until=holdout_start)
+    final = _fit(history, settings, lag_hours)
 
     light_scale = None
     if config.history.solar:
@@ -103,7 +91,7 @@ def train(config: Config, metrics: VictoriaMetrics, *, now: float) -> TrainedMod
         history_days=span * settings.step_seconds / 86400,
         windows=final.windows,
         rate_error=final.rate_error,
-        holdout=replay(older.model, first=holdout_start),
+        holdout=_replay(older.model, history, first=holdout_start),
     )
 
 
@@ -150,17 +138,42 @@ def load_model(path: Path, config: Config) -> TrainedModel:
     return trained
 
 
+def _fit(
+    history: History, settings: TrainingSettings, lag_hours: float, until: int | None = None
+) -> Fit:
+    """Fit the model to the history, or to its first ``until`` grid points."""
+    return fit(
+        history.indoor,
+        history.drivers,
+        step_seconds=settings.step_seconds,
+        lag_hours=lag_hours,
+        window_steps=settings.window_steps,
+        until=until,
+    )
+
+
+def _replay(
+    model: ThermalModel, history: History, *, first: int, stop: int | None = None
+) -> list[HorizonError]:
+    """Measure how ``model`` predicts the history between grid points ``first`` and ``stop``."""
+    return backtest(
+        model,
+        history.indoor,
+        history.drivers,
+        horizons_hours=_HORIZONS_HOURS,
+        first=first,
+        stop=stop,
+    )
+
+
 def _best_lag(
-    fit_history: Callable[..., Fit],
-    replay: Callable[..., list[HorizonError]],
-    tuning_start: int,
-    holdout_start: int,
+    history: History, settings: TrainingSettings, tuning_start: int, holdout_start: int
 ) -> float:
     """Return the lag time whose fit to the oldest history predicts the next part best."""
     drift = {}
     for lag_hours in _LAG_CANDIDATES_HOURS:
-        model = fit_history(lag_hours=lag_hours, until=tuning_start).model
-        if errors := replay(model, first=tuning_start, stop=holdout_start):
+        model = _fit(history, settings, lag_hours, until=tuning_start).model
+        if errors := _replay(model, history, first=tuning_start, stop=holdout_start):
             drift[lag_hours] = _mean_error(errors)
     if not drift:
         raise DataError(

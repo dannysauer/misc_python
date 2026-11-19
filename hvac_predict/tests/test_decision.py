@@ -4,12 +4,14 @@ import numpy as np
 import pytest
 
 from hvac_predict.config import DecisionSettings
-from hvac_predict.decision import COOL, HEAT, Goal, Outlook, Settling, Standing, decide
+from hvac_predict.decision import COOL, HEAT, Change, Choice, Goal, Outlook, decide
 
-SETTINGS = DecisionSettings(overshoot_minutes=480.0, min_hold_minutes=30.0)
+NOW = 1_780_000_000.0
+SETTINGS = DecisionSettings(coast_minutes=90.0, overshoot_minutes=480.0, min_hold_minutes=30.0)
 MINUTES = np.arange(0, 481, 5.0)
-# The owner's own example: a night-time target of 64 °F and pairs 3 °F wide.
-GOAL = Goal(target=64.0, differential=3.0)
+# The owner's own example: a night-time target of 64 °F and pairs 3 °F wide. The other
+# targets run from 58 to 72, so the usual pairs keep the house between 55 and 75.
+GOAL = Goal(target=64.0, differential=3.0, reach=(55.0, 75.0))
 
 
 def outlook(*points: tuple[float, float]) -> Outlook:
@@ -19,14 +21,30 @@ def outlook(*points: tuple[float, float]) -> Outlook:
 
 
 def settling(prediction: Outlook, minutes_left: float, started_from: float | None = None, **more):
-    """Decide for a house on its way to a new target, which it set out for from where it is."""
+    """Decide for a house on its way to a new target, which it set out for from where it is.
+
+    The target changed long enough ago to leave ``minutes_left`` of the 90 the house is given.
+    """
     start = float(prediction.indoor[0]) if started_from is None else started_from
-    return decide(prediction, GOAL, SETTINGS, settling=Settling(minutes_left, start), **more)
+    change = Change(at=NOW - 60 * (SETTINGS.coast_minutes - minutes_left), started_from=start)
+    return decide(prediction, GOAL, SETTINGS, now=NOW, change=change, **more)
 
 
-def settled(prediction: Outlook, settings: DecisionSettings = SETTINGS, **more):
-    """Decide for a house that has been at the target."""
-    return decide(prediction, GOAL, settings, **more)
+def settled(
+    prediction: Outlook,
+    settings: DecisionSettings = SETTINGS,
+    *,
+    chose: str | None = None,
+    minutes_ago: float = 10.0,
+    holds: str | None = None,
+):
+    """Decide for a house that has been at the target.
+
+    ``chose`` is the preference the tool set ``minutes_ago``, which the thermostat still
+    holds unless ``holds`` says otherwise.
+    """
+    choice = None if chose is None else Choice(chose, at=NOW - 60 * minutes_ago)
+    return decide(prediction, GOAL, settings, now=NOW, choice=choice, holds=holds or chose)
 
 
 def test_the_two_pairs_sit_on_either_side_of_the_target():
@@ -34,6 +52,16 @@ def test_the_two_pairs_sit_on_either_side_of_the_target():
     assert GOAL.pair(HEAT) == (64.0, 67.0)
     assert GOAL.pair(COOL) == (61.0, 64.0)
     assert GOAL.range == (61.0, 67.0)
+
+
+@pytest.mark.parametrize(
+    "reach",
+    [(62.0, 75.0), (55.0, 66.0), (float("-inf"), float("inf")), (float("nan"), float("nan"))],
+)
+def test_a_goal_needs_a_reach_that_bounds_its_own_pairs(reach):
+    # HVP-018. The reach is the limit on a drift pair, so one that limits nothing is refused.
+    with pytest.raises(ValueError, match="does not take in the pairs of 64"):
+        Goal(target=64.0, differential=3.0, reach=reach)
 
 
 def test_a_tenth_of_the_differential_from_the_target_is_there():
@@ -109,13 +137,71 @@ def test_a_drifting_house_has_the_idle_setpoint_kept_clear_of_where_it_started()
     assert settling(WARMS_TO_TARGET_IN_60_MIN, 90.0, started_from=58.0).setpoints == (55.0, 64.0)
 
 
+@pytest.mark.parametrize(
+    ("started_from", "pair"),
+    [
+        # HVP-018. The usual pairs of all the targets keep a house between 55 and 75.
+        pytest.param(120.0, (64.0, 78.0), id="a-start-no-pair-would-allow"),
+        pytest.param(75.4, (64.0, 78.0), id="just-outside"),
+        pytest.param(74.9, (64.0, 78.0), id="just-inside"),
+        pytest.param(73.9, (64.0, 77.0), id="well-inside"),
+    ],
+)
+def test_the_idle_setpoint_of_a_drift_goes_no_further_than_the_usual_pairs_reach(
+    started_from, pair
+):
+    decision = settling(COOLS_TO_TARGET_IN_70_MIN, 90.0, started_from=started_from)
+
+    assert (decision.rule, decision.setpoints) == ("drift", pair)
+
+
+def test_a_warming_drift_is_bounded_at_the_cold_end_of_the_reach():
+    # HVP-018
+    def pair_from(started_from: float):
+        return settling(WARMS_TO_TARGET_IN_60_MIN, 90.0, started_from=started_from).setpoints
+
+    assert pair_from(-40.0) == (52.0, 64.0)
+    assert pair_from(54.6) == (52.0, 64.0)
+    assert pair_from(56.1) == (53.0, 64.0)
+
+
+def test_a_start_is_held_to_the_reach_before_it_is_rounded_outwards():
+    # HVP-018. Rounding first would let 74.5 stand, and put the idle setpoint at 77.5.
+    halves = Goal(target=64.0, differential=3.0, reach=(55.5, 74.5))
+
+    assert halves.drift_pair(HEAT, clear_of=120.0) == (64.0, 78.0)
+    assert halves.drift_pair(COOL, clear_of=-40.0) == (52.0, 64.0)
+
+
+def test_the_time_a_house_is_given_runs_from_the_change():
+    # HVP-003. The house needs 70 minutes: enough when 20 of the 90 have gone, not when 25 have.
+    def decided(minutes_ago: float):
+        change = Change(at=NOW - 60 * minutes_ago, started_from=68.0)
+        return decide(COOLS_TO_TARGET_IN_70_MIN, GOAL, SETTINGS, now=NOW, change=change)
+
+    assert decided(20).rule == "drift"
+    assert decided(25).rule == "drive"
+    assert decided(25).reason.endswith("in the 1 h 05 min it has left.")
+    assert decided(500).reason.startswith("The house has had its time to cool to")
+
+
+def test_time_that_ran_out_long_ago_counts_as_none_left_and_not_as_less_than_none():
+    # A house that is already there arrives in no time, which is within no time left.
+    already_there = outlook((0, 64.2), (480, 64.2))
+    long_ago = Change(at=NOW - 60 * 500, started_from=68.0)
+
+    decision = decide(already_there, GOAL, SETTINGS, now=NOW, change=long_ago)
+
+    assert (decision.rule, decision.setpoints) == ("drift", (64.0, 71.0))
+
+
 def test_a_driven_house_gets_the_usual_pair():
     assert settling(COOLS_TO_TARGET_IN_150_MIN, 90.0).setpoints == (61.0, 64.0)
     assert settling(STAYS_COLD, 90.0).setpoints == (64.0, 67.0)
 
 
 @pytest.mark.parametrize(
-    ("prediction", "standing", "expected"),
+    ("prediction", "chose", "expected"),
     [
         # HVP-003. The tool let the house drift ten minutes ago, and the prediction has slipped.
         pytest.param(
@@ -125,9 +211,10 @@ def test_a_driven_house_gets_the_usual_pair():
     ],
 )
 def test_a_choice_made_minutes_ago_does_not_hold_up_a_house_that_is_settling(
-    prediction, standing, expected
+    prediction, chose, expected
 ):
-    decision = settling(prediction, 80.0, standing=Standing(standing, minutes=10.0))
+    chosen = Choice(chose, at=NOW - 600)
+    decision = settling(prediction, 80.0, choice=chosen, holds=chose)
 
     assert (decision.preference, decision.setpoints, decision.rule) == expected
 
@@ -203,7 +290,7 @@ def test_a_settled_house_always_gets_one_of_the_two_usual_pairs():
 
 def test_a_fresh_choice_is_kept_for_the_hold_time():
     # HVP-006
-    kept = settled(FALLS_TO_62, standing=Standing(HEAT, minutes=10.0))
+    kept = settled(FALLS_TO_62, chose=HEAT, minutes_ago=10.0)
 
     assert (kept.preference, kept.setpoints, kept.rule) == (HEAT, (64.0, 67.0), "hold")
     assert kept.reason.startswith(
@@ -212,19 +299,31 @@ def test_a_fresh_choice_is_kept_for_the_hold_time():
 
 
 def test_the_hold_ends_after_the_hold_time():
-    assert settled(FALLS_TO_62, standing=Standing(HEAT, minutes=30.0)).preference == COOL
+    assert settled(FALLS_TO_62, chose=HEAT, minutes_ago=29.0).rule == "hold"
+    assert settled(FALLS_TO_62, chose=HEAT, minutes_ago=30.0).preference == COOL
 
 
-def test_there_is_nothing_to_hold_when_the_thermostat_holds_no_choice_of_the_tool():
-    assert settled(FALLS_TO_62, standing=None).preference == COOL
+def test_there_is_nothing_to_hold_when_the_tool_has_chosen_nothing():
+    assert settled(FALLS_TO_62).preference == COOL
+    assert settled(FALLS_TO_62, holds=HEAT).preference == COOL
 
 
-def test_agreeing_with_the_standing_choice_is_not_a_hold():
-    assert settled(FALLS_TO_62, standing=Standing(COOL, minutes=1.0)).rule == "resting"
+def test_a_fresh_choice_the_thermostat_has_lost_is_not_held():
+    # HVP-006. Somebody, or the schedule, has moved the setpoints since the tool chose heat.
+    for holds in (COOL, None):
+        decision = decide(
+            FALLS_TO_62, GOAL, SETTINGS, now=NOW, choice=Choice(HEAT, at=NOW - 600), holds=holds
+        )
+
+        assert (decision.preference, decision.rule) == (COOL, "resting")
+
+
+def test_agreeing_with_the_tools_own_choice_is_not_a_hold():
+    assert settled(FALLS_TO_62, chose=COOL, minutes_ago=1.0).rule == "resting"
 
 
 @pytest.mark.parametrize(
-    ("prediction", "standing", "expected"),
+    ("prediction", "chose", "expected"),
     [
         # HVP-004. The air conditioner brought the house to 64 ten minutes ago, and it goes on
         # cooling by itself: the furnace has to hold 64, and waiting would let it reach 61.
@@ -234,9 +333,9 @@ def test_agreeing_with_the_standing_choice_is_not_a_hold():
     ],
 )
 def test_a_choice_made_minutes_ago_does_not_hold_up_a_house_that_will_overshoot(
-    prediction, standing, expected
+    prediction, chose, expected
 ):
-    decision = settled(prediction, standing=Standing(standing, minutes=10.0))
+    decision = settled(prediction, chose=chose, minutes_ago=10.0)
 
     assert (decision.preference, decision.rule) == (expected, "overshoot")
 
@@ -253,7 +352,9 @@ def test_reasons_say_what_the_house_will_do():
         "The house has had its time to cool to the new target of 64 unaided, and is not there."
     )
     # The prediction covers eight hours, and the house has been given ten.
-    assert settling(STAYS_COLD, 600.0).reason == (
+    ten_hours = dataclasses.replace(SETTINGS, coast_minutes=600.0)
+    just_changed = Change(at=NOW, started_from=60.0)
+    assert decide(STAYS_COLD, GOAL, ten_hours, now=NOW, change=just_changed).reason == (
         "The target is newly 64, and left alone the house would not warm to it "
         "in the 8 h 00 min the prediction reaches."
     )
